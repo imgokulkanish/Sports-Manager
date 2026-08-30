@@ -1,0 +1,59 @@
+rules_version = '2';
+
+// IMPORTANT: this Firebase project is shared by several apps, and these rules
+// are the WHOLE project's rules - deploying this file replaces everything,
+// including the collections that belong to the other apps. Anything missing
+// here stops working the moment this is deployed, because the default is deny.
+//
+// MERGE NOTE: Shuttle Manager's and Cricket Manager's copies of this file had
+// drifted — Cricket's copy was missing the `expenses` block entirely. This
+// merged version is based on Shuttle's copy (which documented itself as the
+// reconciled one) plus one new block for `playerLinks`. Before deploying,
+// diff it against the Firebase console rather than assuming it is current —
+// same advice the original file gave itself.
+//
+// Rules are scoped per collection rather than a blanket allow on
+// /{document=**}, so one app can't read or clobber another's data. Open
+// read/write is fine for the unauthenticated apps for now since none of them
+// has a login; before sharing their URLs publicly, either add Firebase Auth
+// and scope these to signed-in users, or keep the URLs private.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Kanishpersonalos: private, per-user, auth required -----------------
+    match /users/{userId}/kanish/data {
+      allow read, write: if request.auth != null
+        && request.auth.uid == userId;
+    }
+
+    // --- Shuttle Manager -----------------------------------------------------
+    match /players/{playerId} {
+      allow read, write: if true;
+    }
+    match /sessions/{sessionId} {
+      allow read, write: if true;
+    }
+    match /expenses/{expenseId} {
+      allow read, write: if true;
+    }
+
+    // --- Cricket Manager -------------------------------------------------------
+    match /cricketPlayers/{playerId} {
+      allow read, write: if true;
+    }
+    match /cricketMatches/{matchId} {
+      allow read, write: if true;
+    }
+    match /cricketTournaments/{tournamentId} {
+      allow read, write: if true;
+    }
+
+    // --- Smashers shell: cross-sport identity linking (NEW) -------------------
+    // Additive collection joining a `players/{id}` doc and/or a
+    // `cricketPlayers/{id}` doc into one shared person. See EXPENSES_DESIGN.md
+    // and NOTES.md for why this exists.
+    match /playerLinks/{linkId} {
+      allow read, write: if true;
+    }
+  }
+}

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1E293B" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Smashers" />
+    <title>Smashers</title>
+    <script>
+      // Applied before first paint so there's no flash of the wrong theme.
+      // CHANGED: localStorage key renamed from 'shuttle-manager:theme' to
+      // 'smashers:theme' — it was never actually Shuttle-specific data, just
+      // named after the app it lived in. One-time, harmless reset of
+      // everyone's saved light/dark preference on first load of the merged
+      // app (falls back to 'light', same as today) — not a data-loss
+      // concern, just flagging the one user-visible side effect of the
+      // rename so it's not a surprise.
+      try {
+        var pref = localStorage.getItem('smashers:theme') || 'light'
+        var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        if (dark) document.documentElement.classList.add('dark')
+      } catch (e) {}
+    </script>
+  </head>
+  <body class="bg-gray-50 dark:bg-gray-950">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
