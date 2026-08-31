@@ -28,6 +28,7 @@ import React, { useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useShellStore, SPORTS } from '../store/useShellStore'
 import { SHARED_NAV_ITEMS, SPORT_META, navItemsFor } from '../config/navConfig'
+import { useFirstRun } from '../hooks/useFirstRun'
 import Icon from './icons'
 
 function TabLink({ item, accent }) {
@@ -149,11 +150,16 @@ export default function BottomNav() {
   const { pathname } = useLocation()
   const currentSport = useShellStore((s) => s.currentSport)
   const [moreOpen, setMoreOpen] = useState(false)
+  const firstRun = useFirstRun()
   const accent = SPORT_META[currentSport].accent
   // Box Cricket swaps the whole tab bar rather than adding a seventh tab —
   // see navConfig.js.
   const navItems = navItemsFor(pathname, currentSport)
   const items = navItems.filter((item) => item.bottomNav !== false)
+
+  // Behind the first-run picker these tabs would link into a sport that
+  // hasn't been chosen yet, and More would offer the same choice again.
+  if (firstRun) return null
 
   return (
     <>

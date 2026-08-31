@@ -23,6 +23,8 @@ const paths = {
   menu: 'M4 7h16M4 12h16M4 17h16',
   // Box Cricket — a netted cage, drawn as a bordered box with a net cross.
   box: 'M4 4h16v16H4zM4 9h16M4 15h16M9 4v16M15 4v16',
+  // Used by the header sport chip to mark it as a menu, not a label.
+  'chevron-down': 'M6 9l6 6 6-6',
   link: 'M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.71-1.71',
   // Settings is shell-level now (one page for both sports), so its glyph
   // belongs in the shell set rather than in each sport's own Navbar.

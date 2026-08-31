@@ -18,6 +18,7 @@ import React from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useShellStore, SPORTS } from '../store/useShellStore'
 import { SHARED_NAV_ITEMS, SPORT_META, navItemsFor } from '../config/navConfig'
+import { useFirstRun } from '../hooks/useFirstRun'
 import Icon from './icons'
 
 function SportButton({ sport, isActive, onClick }) {
@@ -66,10 +67,15 @@ export default function Sidebar() {
   const { pathname } = useLocation()
   const currentSport = useShellStore((s) => s.currentSport)
   const setSport = useShellStore((s) => s.setSport)
+  const firstRun = useFirstRun()
   const accent = SPORT_META[currentSport].accent
   // Usually the selected sport's items; Box Cricket is the one section that
   // swaps them from the URL instead — see navConfig.js.
   const navItems = navItemsFor(pathname, currentSport)
+
+  // The first-run picker offers this exact choice, full screen — don't show a
+  // second copy of the switcher behind it. See hooks/useFirstRun.js.
+  if (firstRun) return null
 
   // Switching sport has to move the router too, not just the store — picking
   // Cricket while sitting on /shuttle used to swap the nav list underneath you

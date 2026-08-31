@@ -18,6 +18,7 @@ import Footer from '../components/Footer'
 import { CalendarIcon, PeopleIcon, ActivityIcon, TrophyIcon } from '../components/icons'
 import { ListSkeleton, MetricGridSkeleton, ButtonRowSkeleton } from '../components/Skeleton'
 import NextPayerCard from '../../shell/components/NextPayerCard'
+import SportChip from '../../shell/components/SportChip'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -132,13 +133,19 @@ export default function Dashboard() {
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 tracking-tight">Shuttle Manager</h1>
           <p className="text-xs text-gray-400 dark:text-gray-500">Weekly badminton sessions</p>
         </div>
-        <Link
-          to="/settings"
-          aria-label="Settings"
-          className="text-gray-400 dark:text-gray-500 text-xl hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-        >
-          ⚙
-        </Link>
+        {/* On a phone this is the only thing on screen that says the app has
+            a second sport — the switcher otherwise hides in the More sheet.
+            Renders nothing at md: and up, where the Sidebar has one. */}
+        <div className="flex items-center gap-2">
+          <SportChip />
+          <Link
+            to="/settings"
+            aria-label="Settings"
+            className="text-gray-400 dark:text-gray-500 text-xl hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            ⚙
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-5">

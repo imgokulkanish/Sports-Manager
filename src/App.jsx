@@ -39,6 +39,7 @@ import SportRouteSync from './shell/hooks/useSportRouteSync'
 import PlayersShared from './shell/pages/PlayersShared'
 import ExpensesShared from './shell/pages/ExpensesShared'
 import Settings from './shell/pages/Settings'
+import SportPicker from './shell/pages/SportPicker'
 
 // Lazy-loaded so picking one sport doesn't pull the other sport's whole
 // route tree (pages, engine modules, PDF export libs, etc.) into the
@@ -60,7 +61,15 @@ export default function App() {
             <main className="flex-1 min-w-0 pb-20 md:pb-0">
               <Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading…</div>}>
                 <Routes>
-                  <Route path="/" element={<Navigate to="/shuttle" replace />} />
+                  {/* "/" is where the home-screen icon and the PWA
+                      start_url land, so it decides the very first thing you
+                      see. It used to hard-redirect into Shuttle, which meant
+                      a new Cricket user was dropped into the wrong sport with
+                      no sign the other one existed. SportPicker asks once on
+                      first run and redirects straight through on every launch
+                      after — see its header for why it's not a per-launch
+                      gate. Deep links never route through here. */}
+                  <Route path="/" element={<SportPicker />} />
                   {/* The shared page is now ONLY the cross-sport identity
                       link — each sport's real roster (with its own stats)
                       lives at /shuttle/players and /cricket/players. Old
@@ -74,7 +83,9 @@ export default function App() {
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/shuttle/*" element={<ShuttleRoutes />} />
                   <Route path="/cricket/*" element={<CricketRoutes />} />
-                  <Route path="*" element={<Navigate to="/shuttle" replace />} />
+                  {/* Unknown paths go through "/" rather than straight to
+                      Shuttle, so they land on the sport you actually use. */}
+                  <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Suspense>
             </main>

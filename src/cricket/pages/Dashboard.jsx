@@ -22,6 +22,7 @@ import { formatOversDisplay } from '../utils'
 import { BatIcon, BallIcon, StopwatchIcon, TargetIcon, ShieldIcon, CrosshairIcon } from '../components/StatIcons'
 import MvpInfoModal from '../components/MvpInfoModal'
 import NextPayerCard from '../../shell/components/NextPayerCard'
+import SportChip from '../../shell/components/SportChip'
 import { useMatchVariant } from '../context/MatchVariant'
 
 function CalendarIcon() {
@@ -185,9 +186,14 @@ export default function Dashboard() {
             <p className="text-[11px] text-gray-400">Separate records — not counted in cricket stats</p>
           )}
         </div>
-        <Link to="/settings" aria-label="Settings" className="text-gray-400 text-xl">
-          ⚙
-        </Link>
+        {/* Same reason as Shuttle's dashboard: the phone-only sport
+            switcher, since the Sidebar's isn't there below md:. */}
+        <div className="flex items-center gap-2">
+          <SportChip />
+          <Link to="/settings" aria-label="Settings" className="text-gray-400 text-xl">
+            ⚙
+          </Link>
+        </div>
       </div>
 
       {activeTournament && (
