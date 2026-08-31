@@ -1,10 +1,30 @@
-// pages/Settings.jsx
+// shell/pages/Settings.jsx  —  routed at /settings
+//
+// ONE Settings page for the whole app. This replaces shuttle/pages/Settings.jsx
+// and cricket/pages/Settings.jsx, which were two near-identical pages that
+// quietly disagreed with each other:
+//
+//   - Theme only existed on the Shuttle one, even though ThemeProvider is
+//     shell-level and the setting has always applied to both sports. Sitting
+//     in Cricket there was no way to reach it at all.
+//   - Admin mode appeared twice and unlocked separately (two localStorage
+//     keys), so the same PIN had to be entered twice to get delete buttons in
+//     both sports — and neither unlock reached the shared /expenses page.
+//   - "Clear local cache" each swept only its own key prefix, so clearing from
+//     one sport left the other sport's cache sitting there.
+//   - Firebase status was read from two shims that both re-export the SAME
+//     src/firebase.js, so the two "Data source"/"Data storage" rows could
+//     never actually differ. One row is the honest version.
+//
+// Everything left here is genuinely app-wide, which is why there's nothing to
+// split back out per sport. /shuttle/settings and /cricket/settings redirect
+// here rather than 404.
 import React, { useState } from 'react'
-import { firebaseStatus } from '../firebase'
-import { useTheme } from '../theme'
+import { firebaseStatus } from '../../firebase'
+import { useTheme } from '../../theme'
 import Footer from '../components/Footer'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { useToast } from '../../shell/components/Toast'
+import { useToast } from '../components/Toast'
 import { useAdmin } from '../components/Admin'
 
 const APP_VERSION = '1.0.0'
@@ -14,6 +34,17 @@ const THEME_OPTIONS = [
   { value: 'dark', label: 'Dark' },
   { value: 'system', label: 'System' },
 ]
+
+// Both sports' caches plus the shell's own keys. The per-sport pages each
+// swept one prefix; a single button has to sweep all of them or it's lying
+// about what it just did.
+const CACHE_PREFIXES = ['shuttle-manager:', 'cricket-manager:', 'sportsmanager:', 'shell:']
+// ...except the theme, which lives under the sportsmanager: prefix but is a
+// preference, not a cache. Wiping it would flip someone back to light mode as
+// a side effect of clearing data, which isn't what the button says it does.
+const CACHE_KEEP = ['sportsmanager:theme']
+
+const CARD = 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg'
 
 export default function Settings() {
   const [confirmClear, setConfirmClear] = useState(false)
@@ -34,10 +65,12 @@ export default function Settings() {
   }
 
   const handleClearCache = () => {
-    const keys = Object.keys(localStorage).filter((k) => k.startsWith('shuttle-manager:'))
+    const keys = Object.keys(localStorage).filter(
+      (k) => CACHE_PREFIXES.some((p) => k.startsWith(p)) && !CACHE_KEEP.includes(k),
+    )
     keys.forEach((k) => localStorage.removeItem(k))
-    // The admin flag lives under the same prefix, so drop the in-memory state
-    // too - otherwise the buttons stay visible until the next reload.
+    // The admin flag lives under one of those prefixes, so drop the in-memory
+    // state too - otherwise the buttons stay visible until the next reload.
     lock()
     setConfirmClear(false)
     showToast('Local cache cleared')
@@ -45,9 +78,10 @@ export default function Settings() {
 
   return (
     <div className="max-w-md mx-auto p-4 pb-24 md:pb-8">
-      <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Settings</h1>
+      <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Settings</h1>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">These apply to badminton and cricket alike.</p>
 
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 mb-4">
+      <div className={`${CARD} p-4 mb-4`}>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Appearance</p>
         <div className="grid grid-cols-3 gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
           {THEME_OPTIONS.map((opt) => (
@@ -69,7 +103,7 @@ export default function Settings() {
         </p>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg divide-y divide-gray-100 dark:divide-gray-800 mb-4">
+      <div className={`${CARD} divide-y divide-gray-100 dark:divide-gray-800 mb-4`}>
         <div className="flex justify-between items-center px-4 py-3">
           <span className="text-sm text-gray-600 dark:text-gray-400">App version</span>
           <span className="text-sm text-gray-900 dark:text-gray-100 font-medium">{APP_VERSION}</span>
@@ -88,20 +122,20 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 mb-4">
+      <div className={`${CARD} p-4 mb-4`}>
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-full bg-brand text-white flex items-center justify-center text-sm font-bold shrink-0">
             GK
           </div>
           <div className="min-w-0">
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Gokul Kanish</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Built for our badminton group.</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Built for our badminton and cricket group.</p>
           </div>
         </div>
-        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3">Shuttle Manager v{APP_VERSION}</p>
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3">Sports Manager v{APP_VERSION}</p>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4 mb-4">
+      <div className={`${CARD} p-4 mb-4`}>
         <div className="flex items-center justify-between mb-1">
           <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Admin mode</span>
           <span
@@ -115,8 +149,9 @@ export default function Settings() {
           </span>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          Unlocks deleting players and sessions. Not a security feature - it keeps those buttons out of the way on a shared phone, nothing
-          more. Archiving a player stays available to everyone and keeps their history.
+          One unlock, both sports. Covers deleting players, sessions and matches, editing cricket names and roles, deleting expense
+          entries and unlinking people. Not a security feature - it keeps those buttons out of the way on a shared phone, nothing more.
+          Archiving a player stays available to everyone and keeps their history.
         </p>
 
         {!adminConfigured ? (
@@ -161,13 +196,17 @@ export default function Settings() {
         onClick={() => setConfirmClear(true)}
         className="w-full border border-red-300 dark:border-red-500/40 text-red-600 dark:text-red-400 rounded-lg py-2.5 text-sm font-medium transition-colors active:scale-[0.98] hover:bg-red-50 dark:hover:bg-red-500/10"
       >
-        Clear local cache
+        {status.configured ? 'Clear local cache' : 'Reset all local data'}
       </button>
 
       <ConfirmDialog
         open={confirmClear}
-        title="Clear local cache?"
-        message="Removes any locally cached session data used for offline scoring, and turns admin mode back off. Data already synced to Firebase is unaffected."
+        title={status.configured ? 'Clear local cache?' : 'Reset all local data?'}
+        message={
+          status.configured
+            ? 'Removes any locally cached badminton and cricket data used for offline scoring, and turns admin mode back off. Your theme choice, and anything already synced to Firebase, are unaffected.'
+            : "You're running in local-storage dev mode - this permanently deletes every player, session and match stored in this browser. This cannot be undone."
+        }
         confirmLabel="Clear"
         danger
         onConfirm={handleClearCache}

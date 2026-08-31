@@ -101,7 +101,7 @@ export default function PlayerDetailModal({ player, stat, onClose, onToggleActiv
         </div>
 
         {/* Renaming, archiving and deleting are admin-only — see
-            components/Admin.jsx for what that does and doesn't protect. */}
+            shell/components/Admin.jsx for what that does and doesn't protect. */}
         {canManage && (
           <div className="grid grid-cols-3 gap-2">
             <button onClick={() => onEdit?.(player)} className="rounded-lg border border-gray-300 py-2.5 text-sm font-medium text-gray-700">

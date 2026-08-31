@@ -8,7 +8,7 @@ import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useToast } from '../../shell/components/Toast'
-import { useAdmin } from '../components/Admin'
+import { useAdmin } from '../../shell/components/Admin'
 import { matchResultHeadline } from '../engine/scoringEngine'
 import { useMatchVariant, sixIsOut as matchSixIsOut } from '../context/MatchVariant'
 

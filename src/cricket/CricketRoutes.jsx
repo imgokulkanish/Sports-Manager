@@ -9,8 +9,7 @@
 // page. Cricket's stats and Shuttle's share no fields, so one merged
 // roster page had nothing to show. Expenses stays shared (one joint pot).
 import React from 'react'
-import { Routes, Route } from 'react-router-dom'
-import { AdminProvider } from './components/Admin'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { MatchVariantProvider } from './context/MatchVariant'
 import Dashboard from './pages/Dashboard'
 import NewMatch from './pages/NewMatch'
@@ -20,7 +19,6 @@ import MatchDetail from './pages/MatchDetail'
 import History from './pages/History'
 import Stats from './pages/Stats'
 import Matchups from './pages/Matchups'
-import Settings from './pages/Settings'
 import NewTournament from './pages/NewTournament'
 import NewTournamentMatch from './pages/NewTournamentMatch'
 import TournamentDetail from './pages/TournamentDetail'
@@ -30,8 +28,17 @@ import TournamentDetail from './pages/TournamentDetail'
 const BoxCricketRoutes = React.lazy(() => import('./BoxCricketRoutes'))
 
 export default function CricketRoutes() {
+  // AdminProvider used to wrap this tree; it now wraps the whole app from
+  // App.jsx, so one unlock covers both sports and the shared pages too.
+  //
+  // data-sport-theme="cricket" is what makes dark mode work in here. None of
+  // cricket's ~5,000 lines of JSX carry a single `dark:` class - it shipped
+  // light-only, so switching the shell to dark left every cricket page a
+  // white slab. Rather than hand-editing several hundred class strings (and
+  // missing some), index.css remaps the specific light palette these pages
+  // actually use, scoped to this attribute. See the DARK MODE block there.
   return (
-    <AdminProvider>
+    <div data-sport-theme="cricket">
       {/* Everything below /cricket that ISN'T /cricket/box is full cricket.
           The provider makes that explicit rather than relying on the pages'
           default, so the two trees read symmetrically. */}
@@ -60,10 +67,12 @@ export default function CricketRoutes() {
         <Route path="history" element={<History />} />
         <Route path="stats" element={<Stats />} />
         <Route path="matchups" element={<Matchups />} />
-        <Route path="settings" element={<Settings />} />
+        {/* One shell-level Settings page now - see ShuttleRoutes.jsx for the
+            same redirect and the reasoning behind collapsing the two. */}
+        <Route path="settings" element={<Navigate to="/settings" replace />} />
         <Route path="*" element={<Dashboard />} />
       </Routes>
       </MatchVariantProvider>
-    </AdminProvider>
+    </div>
   )
 }

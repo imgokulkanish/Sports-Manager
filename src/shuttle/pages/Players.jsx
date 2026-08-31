@@ -11,7 +11,7 @@ import EmptyState from '../components/EmptyState'
 import { PeopleIcon } from '../components/icons'
 import { GridSkeleton } from '../components/Skeleton'
 import { useToast } from '../../shell/components/Toast'
-import { useAdmin } from '../components/Admin'
+import { useAdmin } from '../../shell/components/Admin'
 
 export default function Players() {
   const { players, loading, addPlayer, toggleActive, deletePlayer } = usePlayers()

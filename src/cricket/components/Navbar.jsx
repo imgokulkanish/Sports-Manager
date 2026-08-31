@@ -118,7 +118,7 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="mt-auto px-3">
-        <NavLink to="/cricket/settings" aria-label="Settings" className="flex items-center gap-3 text-gray-400 hover:text-gray-600 px-0 py-2">
+        <NavLink to="/settings" aria-label="Settings" className="flex items-center gap-3 text-gray-400 hover:text-gray-600 px-0 py-2">
           <SettingsIcon className="w-5 h-5 shrink-0" />
           <span className="text-xs font-medium lg:inline hidden">Settings</span>
         </NavLink>

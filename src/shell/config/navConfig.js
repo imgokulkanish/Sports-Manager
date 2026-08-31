@@ -33,9 +33,14 @@ import { SPORTS } from '../store/useShellStore'
 // Players pages are routed again under their own prefix, and the shared
 // section keeps only what is genuinely cross-sport: linking one person's
 // two identities (which the joint expense pot needs) and Expenses itself.
+// Settings joined this list when the two per-sport Settings pages collapsed
+// into one shell page (see shell/pages/Settings.jsx). It was previously only
+// reachable from each sport's own dashboard/navbar, which meant the theme
+// control - a shell-level setting all along - was unreachable from Cricket.
 export const SHARED_NAV_ITEMS = [
   { label: 'Link people', path: '/people', icon: 'link' },
   { label: 'Expenses', path: '/expenses', icon: 'wallet' },
+  { label: 'Settings', path: '/settings', icon: 'settings' },
 ]
 
 // `bottomNav: false` keeps an item out of the phone tab bar (it shows in the

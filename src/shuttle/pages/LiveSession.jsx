@@ -5,7 +5,7 @@ import { useSession } from '../hooks/useSession'
 import { usePlayers } from '../hooks/usePlayers'
 import { groupBySlot, pendingSlots } from '../engine/scheduleEngine'
 import { sessionLeaderboard, deciderCandidates, tiedAtTopCount, formatDiff } from '../engine/statsEngine'
-import { useAdmin } from '../components/Admin'
+import { useAdmin } from '../../shell/components/Admin'
 import RoundCard from '../components/RoundCard'
 import Leaderboard from '../components/Leaderboard'
 import Footer from '../components/Footer'
@@ -406,7 +406,7 @@ export default function LiveSession() {
             {/* An in-progress session is otherwise a dead end: History only
                 lists completed ones and the Dashboard links straight here, so
                 without this there's no route to SessionDetail's Delete.
-                Admin-only, same as every other delete - see components/Admin.jsx. */}
+                Admin-only, same as every other delete - see shell/components/Admin.jsx. */}
             {isAdmin && (
               <button
                 onClick={() => setConfirmDelete(true)}

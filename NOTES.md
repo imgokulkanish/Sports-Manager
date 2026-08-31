@@ -46,10 +46,16 @@ own hooks/state stay exactly as they are.
    since a flat bottom nav can't fit sport switcher + up to 5 sport items +
    2 shared items on a 375px screen. See the comment block at the top of
    `BottomNav.jsx` for two alternatives if this doesn't feel right.
-3. **ThemeProvider moves to shell level**, `AdminProvider`/`Admin.jsx` stay
-   per-sport. Cricket's pages have zero `dark:` classes today — switching to
-   Cricket with dark mode on will render light-only until someone retrofits
-   dark mode there. Not caused by this skeleton, just newly visible.
+3. **ThemeProvider moves to shell level.** `AdminProvider` did too, in a
+   later pass — the two per-sport copies were the same file under different
+   localStorage keys, so the same PIN had to be entered twice, and the
+   shared pages had no admin context to gate their deletes against. One
+   provider (`shell/components/Admin.jsx`), one unlock, one Settings page.
+   RESOLVED SEPARATELY: cricket's pages still have zero `dark:` classes, but
+   dark mode works there now — `index.css` remaps the ~40 light utilities
+   those pages actually use, scoped to CricketRoutes'
+   `data-sport-theme="cricket"` wrapper. See the DARK MODE block in that
+   file for why it's CSS rather than several hundred JSX edits.
 4. **Assumed Shuttle's and Cricket's `Toast.jsx` are API-compatible** (same
    `useToast()` shape) and used Shuttle's as the one shared instance. Paste
    both files if you want this confirmed rather than assumed.

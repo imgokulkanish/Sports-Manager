@@ -9,7 +9,7 @@ import { ListSkeleton } from '../components/Skeleton'
 import { StatusBadge } from '../components/StatsBadge'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useToast } from '../../shell/components/Toast'
-import { useAdmin } from '../components/Admin'
+import { useAdmin } from '../../shell/components/Admin'
 import { useMatchVariant, sixIsOut as matchSixIsOut } from '../context/MatchVariant'
 
 export default function MatchDetail() {

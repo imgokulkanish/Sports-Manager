@@ -37,3 +37,214 @@ body {
     transform: translateY(0);
   }
 }
+
+/* ==========================================================================
+   DARK MODE FOR CRICKET
+   ==========================================================================
+
+   Cricket shipped light-only. Its ~5,000 lines of JSX contain exactly zero
+   `dark:` classes (Shuttle's are full of them), so turning the shell dark
+   left every cricket page a white slab with black text sitting inside a
+   near-black chrome. That's the bug this block fixes.
+
+   WHY CSS RATHER THAN EDITING THE JSX. The proper Tailwind fix is a
+   `dark:` variant on every colour class in every cricket file. That's
+   several hundred edits across 30+ files, each needing a judgement call in
+   context, with no way to tell from a diff which ones were missed. The
+   palette those files actually use, though, is small and regular - about
+   forty utilities, counted rather than guessed - so remapping those forty
+   in one reviewable place is both smaller and easier to verify than the
+   mechanical edit. If cricket's JSX ever does get real `dark:` variants,
+   they win over this block (see the specificity note below) and these
+   rules can be deleted a few lines at a time as that happens.
+
+   SCOPE: everything under CricketRoutes' `data-sport-theme="cricket"`
+   wrapper. Shuttle and the shell pages are untouched - they already have
+   their own `dark:` classes and must not be double-handled.
+
+   SPECIFICITY, deliberately: the ancestor part is wrapped in :where() so
+   it contributes nothing, leaving each rule at exactly one class - the
+   same weight as the plain utility it overrides. Because this block is
+   emitted after @tailwind utilities, it wins that tie; and a real
+   `dark:bg-gray-900` (two classes) still beats it. That ordering is the
+   whole point: these are a floor, not a ceiling.
+
+   Colour targets match Shuttle's existing dark treatment so the two sports
+   look like one app: gray-950 page, gray-900 surfaces, gray-800 borders,
+   gray-100 text, emerald-400 for the accent (the pitch green is too dark
+   to read as an accent on a dark ground; solid pitch-green buttons keep it,
+   since they carry white text).
+   ========================================================================== */
+
+/* --- Surfaces ------------------------------------------------------------ */
+:where(.dark [data-sport-theme='cricket']) .bg-white {
+  background-color: #111827; /* gray-900 */
+}
+:where(.dark [data-sport-theme='cricket']) .bg-gray-50,
+:where(.dark [data-sport-theme='cricket']) .bg-gray-100 {
+  background-color: #1f2937; /* gray-800 */
+}
+:where(.dark [data-sport-theme='cricket']) .bg-gray-200,
+:where(.dark [data-sport-theme='cricket']) .bg-gray-300 {
+  background-color: #374151; /* gray-700 - disabled buttons, mostly */
+}
+:where(.dark [data-sport-theme='cricket']) .hover\:bg-gray-50:hover {
+  background-color: #1f2937;
+}
+:where(.dark [data-sport-theme='cricket']) .disabled\:bg-gray-300:disabled {
+  background-color: #374151;
+}
+
+/* --- Text ---------------------------------------------------------------- */
+:where(.dark [data-sport-theme='cricket']) .text-gray-900 {
+  color: #f3f4f6; /* gray-100 */
+}
+:where(.dark [data-sport-theme='cricket']) .text-gray-800 {
+  color: #e5e7eb; /* gray-200 */
+}
+:where(.dark [data-sport-theme='cricket']) .text-gray-700 {
+  color: #d1d5db; /* gray-300 */
+}
+:where(.dark [data-sport-theme='cricket']) .text-gray-600,
+:where(.dark [data-sport-theme='cricket']) .text-gray-500 {
+  color: #9ca3af; /* gray-400 - 500 and 600 collapse; both are "secondary" */
+}
+:where(.dark [data-sport-theme='cricket']) .text-gray-400 {
+  color: #6b7280; /* gray-500 */
+}
+:where(.dark [data-sport-theme='cricket']) .text-gray-300 {
+  color: #4b5563; /* gray-600 */
+}
+:where(.dark [data-sport-theme='cricket']) .hover\:text-gray-700:hover {
+  color: #d1d5db;
+}
+:where(.dark [data-sport-theme='cricket']) .hover\:text-gray-600:hover {
+  color: #9ca3af;
+}
+:where(.dark [data-sport-theme='cricket']) .disabled\:text-gray-400:disabled,
+:where(.dark [data-sport-theme='cricket']) .disabled\:text-gray-500:disabled {
+  color: #6b7280;
+}
+
+/* --- Borders and dividers ------------------------------------------------ */
+:where(.dark [data-sport-theme='cricket']) .border-gray-50,
+:where(.dark [data-sport-theme='cricket']) .border-gray-100,
+:where(.dark [data-sport-theme='cricket']) .border-gray-200 {
+  border-color: #1f2937; /* gray-800 */
+}
+:where(.dark [data-sport-theme='cricket']) .border-gray-300 {
+  border-color: #374151; /* gray-700 - inputs and outline buttons */
+}
+:where(.dark [data-sport-theme='cricket']) .divide-gray-100 > * + * {
+  border-color: #1f2937;
+}
+
+/* --- Accent (pitch green) ------------------------------------------------
+   Solid .bg-pitch / .border-pitch keep their colour: they're filled buttons
+   carrying white text and read correctly on a dark ground. Only the
+   light-tinted variants and the green-on-white text need remapping. */
+:where(.dark [data-sport-theme='cricket']) .text-pitch,
+:where(.dark [data-sport-theme='cricket']) .text-pitch-dark,
+:where(.dark [data-sport-theme='cricket']) .hover\:text-pitch:hover {
+  color: #34d399; /* emerald-400, same accent Shuttle uses in dark */
+}
+:where(.dark [data-sport-theme='cricket']) .text-pitch-dark\/70 {
+  color: rgba(52, 211, 153, 0.75);
+}
+:where(.dark [data-sport-theme='cricket']) .bg-pitch-light {
+  background-color: rgba(31, 111, 74, 0.18);
+}
+:where(.dark [data-sport-theme='cricket']) .border-pitch-border {
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+/* --- Status colours: amber (warnings), red (destructive), green/blue/purple
+   (badges). The 50/100 fills become low-alpha tints so they sit on the dark
+   surface instead of glowing; the 600-800 texts lift to the 300 step so they
+   stay readable. Saturated fills (.bg-red-600, .bg-amber-500) keep their
+   colour - they carry white text already. ---------------------------------- */
+:where(.dark [data-sport-theme='cricket']) .bg-amber-50,
+:where(.dark [data-sport-theme='cricket']) .bg-amber-100 {
+  background-color: rgba(245, 158, 11, 0.12);
+}
+:where(.dark [data-sport-theme='cricket']) .border-amber-200,
+:where(.dark [data-sport-theme='cricket']) .border-amber-300 {
+  border-color: rgba(245, 158, 11, 0.32);
+}
+:where(.dark [data-sport-theme='cricket']) .text-amber-600,
+:where(.dark [data-sport-theme='cricket']) .text-amber-700,
+:where(.dark [data-sport-theme='cricket']) .text-amber-800 {
+  color: #fcd34d; /* amber-300 */
+}
+:where(.dark [data-sport-theme='cricket']) .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.12);
+}
+:where(.dark [data-sport-theme='cricket']) .border-red-200,
+:where(.dark [data-sport-theme='cricket']) .border-red-300,
+:where(.dark [data-sport-theme='cricket']) .border-red-400 {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+:where(.dark [data-sport-theme='cricket']) .text-red-500,
+:where(.dark [data-sport-theme='cricket']) .text-red-600,
+:where(.dark [data-sport-theme='cricket']) .text-red-700,
+:where(.dark [data-sport-theme='cricket']) .hover\:text-red-500:hover,
+:where(.dark [data-sport-theme='cricket']) .hover\:text-red-600:hover {
+  color: #f87171; /* red-400 */
+}
+:where(.dark [data-sport-theme='cricket']) .bg-green-100 {
+  background-color: rgba(34, 197, 94, 0.15);
+}
+:where(.dark [data-sport-theme='cricket']) .text-green-700,
+:where(.dark [data-sport-theme='cricket']) .text-green-800 {
+  color: #86efac; /* green-300 */
+}
+:where(.dark [data-sport-theme='cricket']) .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.15);
+}
+:where(.dark [data-sport-theme='cricket']) .text-blue-600,
+:where(.dark [data-sport-theme='cricket']) .text-blue-700,
+:where(.dark [data-sport-theme='cricket']) .text-blue-800 {
+  color: #93c5fd; /* blue-300 */
+}
+:where(.dark [data-sport-theme='cricket']) .bg-purple-100 {
+  background-color: rgba(168, 85, 247, 0.15);
+}
+:where(.dark [data-sport-theme='cricket']) .text-purple-800 {
+  color: #d8b4fe; /* purple-300 */
+}
+
+/* --- Form controls -------------------------------------------------------
+   Cricket's inputs and selects set a border but no background, so they fall
+   back to the browser's white. Class-based rules can't reach that; these
+   element rules can. Kept to the scope so Shuttle's inputs (which DO carry
+   dark: classes) are untouched. */
+:where(.dark [data-sport-theme='cricket']) input,
+:where(.dark [data-sport-theme='cricket']) select,
+:where(.dark [data-sport-theme='cricket']) textarea {
+  background-color: #1f2937;
+  color: #f3f4f6;
+}
+:where(.dark [data-sport-theme='cricket']) input::placeholder,
+:where(.dark [data-sport-theme='cricket']) textarea::placeholder {
+  color: #6b7280;
+}
+/* Native date/time pickers render a black glyph that vanishes on dark. */
+:where(.dark [data-sport-theme='cricket']) input[type='date']::-webkit-calendar-picker-indicator,
+:where(.dark [data-sport-theme='cricket']) input[type='time']::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.6);
+}
+
+/* --- Loading skeletons ---------------------------------------------------
+   The shimmer sweep is a 70%-opacity WHITE gradient over gray-200. The base
+   colour is handled by the .bg-gray-200 rule above, but the sweep itself is
+   an arbitrary-value background-image class whose selector is impractical to
+   escape here - target the animation class instead, which every shimmer
+   element also carries. */
+:where(.dark [data-sport-theme='cricket']) .animate-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 70%
+  );
+}

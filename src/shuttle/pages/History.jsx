@@ -10,7 +10,7 @@ import EmptyState from '../components/EmptyState'
 import { CalendarIcon } from '../components/icons'
 import { ListSkeleton } from '../components/Skeleton'
 import { useToast } from '../../shell/components/Toast'
-import { useAdmin } from '../components/Admin'
+import { useAdmin } from '../../shell/components/Admin'
 import ConfirmDialog from '../components/ConfirmDialog'
 
 const INPUT = 'w-full mt-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-2 py-1.5 text-xs'
@@ -133,7 +133,7 @@ export default function History() {
                 {winnerOfDay(s) ? ` · 🏆 ${winnerOfDay(s)}` : ''}
               </p>
             </Link>
-            {/* Deleting a session is admin-only - see components/Admin.jsx. */}
+            {/* Deleting a session is admin-only - see shell/components/Admin.jsx. */}
             {isAdmin && (
               <button
                 onClick={() => setPendingDelete(s)}

@@ -13,7 +13,7 @@ import { StatusBadge } from '../components/StatsBadge'
 import SessionEditModal from '../components/SessionEditModal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useToast } from '../../shell/components/Toast'
-import { useAdmin } from '../components/Admin'
+import { useAdmin } from '../../shell/components/Admin'
 
 // A "round" is a block of time; on a two-court round it holds two matches.
 // Counts a pre-multi-court schedule (no `slot` field) as one round per match.
@@ -101,7 +101,7 @@ export default function SessionDetail() {
           <button onClick={() => setShowEdit(true)} className="text-xs text-gray-500 dark:text-gray-400 underline hover:text-gray-700 dark:hover:text-gray-200">
             Edit
           </button>
-          {/* Deleting a session is admin-only - see components/Admin.jsx. */}
+          {/* Deleting a session is admin-only - see shell/components/Admin.jsx. */}
           {isAdmin && (
             <button onClick={() => setConfirmDelete(true)} className="text-xs text-red-500 dark:text-red-400 underline hover:text-red-700 dark:hover:text-red-300">
               Delete

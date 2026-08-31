@@ -7,7 +7,7 @@ import PlayerDetailModal from '../components/PlayerDetailModal'
 import Footer from '../components/Footer'
 import { GridSkeleton } from '../components/Skeleton'
 import { useToast } from '../../shell/components/Toast'
-import { useAdmin } from '../components/Admin'
+import { useAdmin } from '../../shell/components/Admin'
 
 export default function Players() {
   const { players, loading, addPlayer, updatePlayer, toggleActive, deletePlayer } = usePlayers()

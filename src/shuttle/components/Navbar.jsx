@@ -131,7 +131,7 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="mt-auto px-3">
-        <NavLink to="/shuttle/settings" className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
+        <NavLink to="/settings" className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
           Settings
         </NavLink>
       </div>

@@ -14,8 +14,7 @@
 // untouched and unrouted — kept rather than deleted so it can be diffed
 // against the shared version.
 import React from 'react'
-import { Routes, Route, useLocation } from 'react-router-dom'
-import { AdminProvider } from './components/Admin'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Dashboard from './pages/Dashboard'
 import NewSession from './pages/NewSession'
 import QuickMatch from './pages/QuickMatch'
@@ -24,7 +23,6 @@ import LiveSession from './pages/LiveSession'
 import SessionDetail from './pages/SessionDetail'
 import History from './pages/History'
 import Stats from './pages/Stats'
-import Settings from './pages/Settings'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -39,7 +37,12 @@ function AnimatedRoutes() {
         <Route path="session/:id" element={<SessionDetail />} />
         <Route path="history" element={<History />} />
         <Route path="stats" element={<Stats />} />
-        <Route path="settings" element={<Settings />} />
+        {/* Settings is one shell-level page now (/settings) rather than one
+            per sport — the two were the same handful of rows, and the parts
+            that mattered (theme, the admin PIN, "clear cache") were never
+            sport-specific to begin with. Redirect rather than 404 so old
+            links and bookmarks still land somewhere useful. */}
+        <Route path="settings" element={<Navigate to="/settings" replace />} />
         <Route path="*" element={<Dashboard />} />
       </Routes>
     </div>
@@ -47,9 +50,7 @@ function AnimatedRoutes() {
 }
 
 export default function ShuttleRoutes() {
-  return (
-    <AdminProvider>
-      <AnimatedRoutes />
-    </AdminProvider>
-  )
+  // AdminProvider used to wrap this tree; it now wraps the whole app from
+  // App.jsx, so one unlock covers both sports and the shared pages too.
+  return <AnimatedRoutes />
 }

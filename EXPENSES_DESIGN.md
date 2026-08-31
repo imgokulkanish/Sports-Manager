@@ -118,3 +118,58 @@ actually joint, for anyone who plays both.
 - **`firestore.rules`:** no change needed — the existing `expenses/{expenseId}`
   block already allows read/write; it doesn't need to know about the new
   `sport` field.
+
+## Who counts in the rotation — `expenseOptOuts`
+
+Added after the fact: the fairness pool was "everyone active in either
+sport", so anyone who plays but never chips in (guests, juniors, people who
+pay their own way) sat permanently at `SAR 0.00 / never` and therefore
+permanently at the top of "next up". The only lever was archiving them in
+their sport roster, which is the wrong tool — that also pulls them out of
+team selection, matchups and stats to fix what is purely an expenses
+question.
+
+```
+expenseOptOuts/{`${sport}:${playerId}`}
+{
+  sport: 'shuttle' | 'cricket',
+  playerId: string,            // raw players/{id} or cricketPlayers/{id}
+  updatedAt: serverTimestamp,
+}
+```
+
+**Presence means "not counted".** Opting someone back in deletes the doc, so
+the collection only ever holds the exceptions and there is no third "unset"
+state.
+
+**Why the doc id is the sport-specific player id, not the merged person id.**
+A merged person id is a `playerLinks` doc id when someone is linked and a
+synthesized `shuttle:<rawId>` / `cricket:<rawId>` composite when they aren't
+(see `mergePeople.js`), so it changes the moment you link or unlink them.
+Keying opt-outs by it would quietly put someone back in the rotation the
+first time their two identities were joined. The raw ids never change. Same
+principle as `paidBy` staying sport-specific above: identity joins happen at
+read time, not by rewriting keys.
+
+A person is out if **any** of their sport identities is opted out — so
+linking an excluded cricket identity to an included badminton one keeps them
+out until someone says otherwise, rather than resurrecting them by accident.
+
+### What being left out does and doesn't do
+
+| | |
+|---|---|
+| Suggested as "next up" | no |
+| Shown on the "who's put in what" board | no |
+| Offered in the "paid by" picker | no |
+| Their existing entries in History | **still shown** |
+| Their past spend in the pot total / monthly summary | **still counted** |
+| Their sport roster, stats, matchups, team selection | **untouched** |
+
+That split is the point: it's a rotation setting, not a delete. Money already
+spent was real money and keeps counting.
+
+Editing the list is admin-gated (same PIN as the deletes) because it changes
+who gets asked to pay. Reading it isn't. If the rules block above hasn't been
+deployed the read fails closed to an empty set — everyone is counted, which is
+the old behavior — and the page says so rather than looking broken.

@@ -133,7 +133,7 @@ export default function Dashboard() {
           <p className="text-xs text-gray-400 dark:text-gray-500">Weekly badminton sessions</p>
         </div>
         <Link
-          to="/shuttle/settings"
+          to="/settings"
           aria-label="Settings"
           className="text-gray-400 dark:text-gray-500 text-xl hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
         >

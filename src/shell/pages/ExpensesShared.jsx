@@ -13,11 +13,13 @@
 // every other TODO in this skeleton. None of them need to change internally;
 // they were never Shuttle-specific to begin with.
 import React, { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { usePlayers as useShuttlePlayers } from '../../shuttle/hooks/usePlayers'
 import { usePlayers as useCricketPlayers } from '../../cricket/hooks/usePlayers'
 import { usePlayerLinks } from '../hooks/usePlayerLinks'
 import { mergePeople, buildPersonIndex, attachPersonIds } from '../lib/mergePeople'
 import { useSharedExpenses } from '../hooks/useSharedExpenses'
+import { useExpenseParticipants } from '../hooks/useExpenseParticipants'
 import { categoriesForSport, categoryLabel, categoryShort } from '../lib/expenseCategories'
 import {
   suggestNextPayer,
@@ -33,6 +35,7 @@ import Footer from '../components/Footer'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { ListSkeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
+import { useAdmin } from '../components/Admin'
 
 const INPUT =
   'w-full mt-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm'
@@ -62,6 +65,117 @@ function sinceLabel(date) {
   return `${Math.floor(days / 7)}w ago`
 }
 
+/**
+ * Who counts toward "whose turn is it". Collapsed to a one-line summary by
+ * default — this is a set-it-once-a-season control, not something you touch
+ * on an evening out, so it shouldn't compete with the form above it.
+ *
+ * Deliberately NOT the same thing as archiving someone in their sport roster:
+ * that removes them from team selection, matchups and stats too. Plenty of
+ * people are active players who simply don't share costs — guests, juniors,
+ * whoever pays their own way — and until now there was no way to say that
+ * without lying about their playing status.
+ */
+function RotationManager({ rotationPeople, excludedPeople, canEdit, busyId, onChange }) {
+  const [open, setOpen] = useState(false)
+  // Active only, so this list and its count match the board above it exactly
+  // (buildSpendSummary drops inactive people too). Someone archived in their
+  // sport is already absent from the rotation without needing a second
+  // switch here — un-archiving them brings them back.
+  const inRotation = useMemo(
+    () => rotationPeople.filter((p) => p.isActive).sort((a, b) => a.name.localeCompare(b.name)),
+    [rotationPeople],
+  )
+
+  return (
+    <div className={`${CARD} mb-6`}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left"
+      >
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Who's in the rotation</p>
+          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+            {inRotation.length} counted
+            {excludedPeople.length > 0 && ` · ${excludedPeople.length} left out`}
+          </p>
+        </div>
+        <span className="text-[11px] text-brand dark:text-emerald-400 shrink-0">{open ? 'Done' : 'Manage'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-gray-100 dark:border-gray-800 px-3 py-3">
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
+            Leaving someone out only affects this page — they stay a full player in their sport, keep their stats, and any payment
+            they've already made still shows in the history below.
+          </p>
+
+          {!canEdit && (
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/60 rounded-lg px-3 py-2 mb-3">
+              <Link to="/settings" className="underline">
+                Turn on admin mode
+              </Link>{' '}
+              to change who's counted — it decides who gets asked to pay.
+            </p>
+          )}
+
+          <div className="flex flex-col gap-1">
+            {inRotation.map((p) => (
+              <RotationRow key={p.id} person={p} included canEdit={canEdit} busy={busyId === p.id} onChange={onChange} />
+            ))}
+          </div>
+
+          {excludedPeople.length > 0 && (
+            <>
+              <p className="text-[11px] font-medium text-gray-400 dark:text-gray-500 mt-4 mb-1.5">Not counted</p>
+              <div className="flex flex-col gap-1">
+                {excludedPeople.map((p) => (
+                  <RotationRow key={p.id} person={p} included={false} canEdit={canEdit} busy={busyId === p.id} onChange={onChange} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RotationRow({ person, included, canEdit, busy, onChange }) {
+  return (
+    <div className="flex items-center gap-2 px-1 py-1.5">
+      <Avatar id={person.id} name={person.name} size="xs" className={included ? '' : 'opacity-50'} />
+      <span className={`text-sm flex-1 truncate ${included ? 'text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500'}`}>
+        {person.name}
+        {/* Which sport(s) they came from - the same person can look like two
+            strangers here when their two rosters spell the name differently
+            and nobody has linked them yet. */}
+        <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1.5">
+          {person.shuttlePlayerId && '🏸'}
+          {person.cricketPlayerId && '🏏'}
+        </span>
+        {!person.isActive && <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1">archived</span>}
+      </span>
+      {canEdit && (
+        <button
+          type="button"
+          onClick={() => onChange(person, !included)}
+          disabled={busy}
+          className={`text-[11px] font-medium rounded-full px-2.5 py-1 border transition-colors disabled:opacity-40 ${
+            included
+              ? 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-red-300 hover:text-red-500 dark:hover:border-red-500/40 dark:hover:text-red-400'
+              : 'border-brand-border dark:border-brand/30 text-brand dark:text-emerald-400 hover:bg-brand-light dark:hover:bg-brand/15'
+          }`}
+        >
+          {busy ? '…' : included ? 'Leave out' : 'Count in'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function ExpensesShared() {
   // CHANGED: three roster sources instead of one, joined via mergePeople —
   // this is what makes the pot joint rather than per-sport.
@@ -70,6 +184,17 @@ export default function ExpensesShared() {
   const { links, loading: linksLoading } = usePlayerLinks()
   const { expenses, loading: expensesLoading, error: expensesError, addExpense, deleteExpense } = useSharedExpenses()
   const { showToast } = useToast()
+  // Deleting an entry silently changes whose turn it is to pay - the rotation
+  // is derived from this history, so a stray tap on a passed-around phone
+  // moves money around without anyone noticing. Same reasoning as every other
+  // delete in the app; see shell/components/Admin.jsx.
+  const { isAdmin } = useAdmin()
+  const {
+    loading: participantsLoading,
+    error: participantsError,
+    isInRotation,
+    setPersonInRotation,
+  } = useExpenseParticipants()
 
   const people = useMemo(() => mergePeople(shuttlePlayers, cricketPlayers, links), [shuttlePlayers, cricketPlayers, links])
   const personIndex = useMemo(() => buildPersonIndex(people), [people])
@@ -93,6 +218,28 @@ export default function ExpensesShared() {
   const [showAllMonths, setShowAllMonths] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [absent, setAbsent] = useState([]) // personIds, this evening's UI state only
+  const [rotationBusyId, setRotationBusyId] = useState(null)
+
+  const changeRotation = async (person, inRotation) => {
+    setRotationBusyId(person.id)
+    try {
+      await setPersonInRotation(person, inRotation)
+      // Someone taken out of the rotation shouldn't stay on tonight's "not
+      // here" list - they're not being skipped any more, they're just gone.
+      if (!inRotation) setAbsent((prev) => prev.filter((id) => id !== person.id))
+      showToast(inRotation ? `${person.name} counted in the rotation` : `${person.name} left out of the rotation`)
+    } catch (err) {
+      console.error('Failed to update rotation:', err)
+      showToast(
+        err?.code === 'permission-denied'
+          ? 'Blocked by Firestore rules — the /expenseOptOuts rule needs deploying'
+          : 'Could not save that change',
+        'error',
+      )
+    } finally {
+      setRotationBusyId(null)
+    }
+  }
 
   useEffect(() => {
     setCategory(categoriesForSport(sport)[0]?.value || '')
@@ -104,17 +251,40 @@ export default function ExpensesShared() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sport])
 
-  const eligiblePayers = useMemo(
-    () => people.filter((p) => (sport === SPORTS.SHUTTLE ? p.shuttlePlayerId : p.cricketPlayerId) && p.isActive),
-    [people, sport],
+
+  // THE ROTATION POOL vs THE FULL LIST - two different things, deliberately.
+  //
+  // `rotationPeople` drives who can be suggested, who appears on the board,
+  // and who is offered in the payer picker. `people` (unfiltered) still backs
+  // the monthly summary and every history row, because someone opted out
+  // today may well have paid something last month, and their name has to
+  // keep resolving. Money already spent stays counted in the pot total for
+  // the same reason - it was real money.
+  const rotationPeople = useMemo(() => people.filter(isInRotation), [people, isInRotation])
+  const excludedPeople = useMemo(
+    () => people.filter((p) => !isInRotation(p)).sort((a, b) => a.name.localeCompare(b.name)),
+    [people, isInRotation],
   )
 
+  const eligiblePayers = useMemo(
+    () => rotationPeople.filter((p) => (sport === SPORTS.SHUTTLE ? p.shuttlePlayerId : p.cricketPlayerId) && p.isActive),
+    [rotationPeople, sport],
+  )
+
+  // Taking the currently-selected payer out of the rotation would otherwise
+  // leave the picker showing a name that no longer has an <option> - the
+  // select renders blank while `paidBy` still holds the id, so Add entry
+  // stays enabled and files the payment against someone you can't see.
+  useEffect(() => {
+    if (paidBy && !eligiblePayers.some((p) => p.id === paidBy)) setPaidBy('')
+  }, [eligiblePayers, paidBy])
+
   const suggestion = useMemo(
-    () => suggestNextPayer(resolvedExpenses, people, { exclude: absent }),
-    [resolvedExpenses, people, absent],
+    () => suggestNextPayer(resolvedExpenses, rotationPeople, { exclude: absent }),
+    [resolvedExpenses, rotationPeople, absent],
   )
   const allSkipped = !suggestion && absent.length > 0
-  const board = useMemo(() => buildSpendSummary(resolvedExpenses, people), [resolvedExpenses, people])
+  const board = useMemo(() => buildSpendSummary(resolvedExpenses, rotationPeople), [resolvedExpenses, rotationPeople])
   const potTotal = useMemo(() => windowTotal(resolvedExpenses), [resolvedExpenses])
   const months = useMemo(() => monthlySummary(resolvedExpenses, people), [resolvedExpenses, people])
   const visibleMonths = showAllMonths ? months : months.slice(0, 3)
@@ -186,7 +356,7 @@ export default function ExpensesShared() {
     }
   }
 
-  if (shuttleLoading || cricketLoading || linksLoading || expensesLoading) {
+  if (shuttleLoading || cricketLoading || linksLoading || expensesLoading || participantsLoading) {
     return (
       <div className="p-4 max-w-3xl mx-auto">
         <ListSkeleton rows={5} />
@@ -207,6 +377,19 @@ export default function ExpensesShared() {
             {expensesError.code === 'permission-denied'
               ? "Expenses can't be read or written yet — deploy the /expenses rules block."
               : "Couldn't load expenses. Check your connection and reload."}
+          </p>
+        </div>
+      )}
+
+      {/* Separate banner rather than folded into the one above: this failing
+          degrades to "everyone is in the rotation", which is the old behavior
+          and still perfectly usable - the page shouldn't read as broken. */}
+      {participantsError && (
+        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2 mb-4">
+          <p className="text-xs text-amber-800 dark:text-amber-300">
+            {participantsError.code === 'permission-denied'
+              ? "Everyone is being counted in the rotation — deploy the /expenseOptOuts rules block to leave people out."
+              : "Couldn't load the rotation list, so everyone is being counted for now."}
           </p>
         </div>
       )}
@@ -385,6 +568,14 @@ export default function ExpensesShared() {
         ))}
       </div>
 
+      <RotationManager
+        rotationPeople={rotationPeople}
+        excludedPeople={excludedPeople}
+        canEdit={isAdmin}
+        busyId={rotationBusyId}
+        onChange={changeRotation}
+      />
+
       {months.length > 0 && (
         <>
           <div className="flex items-baseline justify-between mb-2">
@@ -412,7 +603,14 @@ export default function ExpensesShared() {
         </>
       )}
 
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">History</p>
+      <div className="flex items-baseline justify-between mb-2">
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">History</p>
+        {!isAdmin && resolvedExpenses.length > 0 && (
+          <Link to="/settings" className="text-[11px] text-gray-400 dark:text-gray-500 underline hover:text-gray-600 dark:hover:text-gray-300">
+            Turn on admin mode to delete
+          </Link>
+        )}
+      </div>
       <div className="flex flex-col gap-1.5">
         {resolvedExpenses.length === 0 && <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-6">Nothing logged yet.</p>}
         {resolvedExpenses.map((e) => (
@@ -430,13 +628,15 @@ export default function ExpensesShared() {
             <span className="text-sm font-semibold text-brand dark:text-emerald-400 shrink-0">
               {e.amount == null ? '—' : money(e.amount)}
             </span>
-            <button
-              onClick={() => setPendingDelete(e)}
-              aria-label="Delete entry"
-              className="text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 text-lg leading-none px-1.5 shrink-0 transition-colors"
-            >
-              ×
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setPendingDelete(e)}
+                aria-label="Delete entry"
+                className="text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 text-lg leading-none px-1.5 shrink-0 transition-colors"
+              >
+                ×
+              </button>
+            )}
           </div>
         ))}
       </div>

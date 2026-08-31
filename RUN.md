@@ -113,8 +113,11 @@ Site name per `NAMING.md`: `sportsmanager-gk`.
 
 ## Still genuinely open (see NOTES.md / NAMING.md for full detail)
 
-- Cricket's pages have no `dark:` classes — dark mode will look "off"
-  (light-only) inside `/cricket` until someone retrofits that.
+- Cricket's pages still carry no `dark:` classes of their own — dark mode
+  inside `/cricket` comes from the scoped remap in `index.css` rather than
+  from the components. It covers the palette those pages use today; a new
+  cricket page introducing a colour outside that set will need either a
+  `dark:` class (which wins over the remap) or a new line in that block.
 - Same-day session/match linking on the Expenses form (the original's
   "will be linked to today's session" convenience) isn't wired — needs
   Cricket's match-listing hook alongside Shuttle's `useSessions()`.

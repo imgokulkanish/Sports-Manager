@@ -240,7 +240,7 @@ export default function PlayerDetailModal({ player, stat, playersById, sessions,
           >
             {player.isActive ? 'Archive' : 'Unarchive'}
           </button>
-          {/* Delete is admin-only - see components/Admin.jsx for what that
+          {/* Delete is admin-only - see shell/components/Admin.jsx for what that
               does and doesn't protect. Archive stays open to everyone. */}
           {canDelete && (
             <button

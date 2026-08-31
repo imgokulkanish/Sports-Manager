@@ -63,5 +63,19 @@ service cloud.firestore {
     match /playerLinks/{linkId} {
       allow read, write: if true;
     }
+
+    // --- Sports Manager shell: expense rotation opt-outs (NEW) ---------------------
+    // One doc per person LEFT OUT of the expense fairness rotation, id
+    // `${sport}:${playerId}`. Presence means "don't count them"; opting
+    // someone back in deletes the doc. Anchored to the sport-specific player
+    // id rather than the merged person id so linking/unlinking can't silently
+    // change who pays — see src/shell/hooks/useExpenseParticipants.js.
+    //
+    // Until this block is deployed the page still works: reads fail closed to
+    // an empty set, which means everyone is counted (the old behavior), and
+    // the page says so rather than looking broken.
+    match /expenseOptOuts/{optOutId} {
+      allow read, write: if true;
+    }
   }
 }

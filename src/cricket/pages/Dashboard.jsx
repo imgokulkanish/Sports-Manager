@@ -185,7 +185,7 @@ export default function Dashboard() {
             <p className="text-[11px] text-gray-400">Separate records — not counted in cricket stats</p>
           )}
         </div>
-        <Link to="/cricket/settings" aria-label="Settings" className="text-gray-400 text-xl">
+        <Link to="/settings" aria-label="Settings" className="text-gray-400 text-xl">
           ⚙
         </Link>
       </div>

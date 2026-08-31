@@ -18,7 +18,7 @@ import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
 import { useToast } from '../../shell/components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { useAdmin } from '../components/Admin'
+import { useAdmin } from '../../shell/components/Admin'
 import { useMatchVariant, sixIsOut as matchSixIsOut } from '../context/MatchVariant'
 
 const WICKET_TYPES = ['bowled', 'caught', 'lbw', 'runout', 'stumped', 'other']

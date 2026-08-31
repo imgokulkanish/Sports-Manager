@@ -21,20 +21,24 @@
 //     NOT via a per-sport re-export shim, since a file that only re-exports
 //     gives react-refresh no component to anchor to and goes stale in dev.
 //
-// Providers deliberately NOT lifted here:
-//   - AdminProvider — stays per-sport (each of ShuttleRoutes/CricketRoutes
-//     wraps its own subtree with its own existing AdminProvider/Admin.jsx),
-//     since the brief didn't ask to unify admin/PIN behavior and the two
-//     apps' admin gates aren't confirmed to be the same shape.
+//   - AdminProvider — LIFTED (it wasn't, originally). The two per-sport
+//     providers turned out to be the same file twice under different
+//     localStorage keys, which meant entering the same PIN twice, and left
+//     the shared pages (/expenses, /people) with no admin context at all to
+//     gate their destructive buttons against. One provider at shell level,
+//     one unlock, one Settings page to toggle it from. See
+//     shell/components/Admin.jsx.
 import React, { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './theme' // moved from shuttle-manager/src/theme.jsx, unchanged
 import { ToastProvider } from './shell/components/Toast' // moved from shuttle-manager/src/components/Toast.jsx, unchanged
+import { AdminProvider } from './shell/components/Admin'
 import Sidebar from './shell/components/Sidebar'
 import BottomNav from './shell/components/BottomNav'
 import SportRouteSync from './shell/hooks/useSportRouteSync'
 import PlayersShared from './shell/pages/PlayersShared'
 import ExpensesShared from './shell/pages/ExpensesShared'
+import Settings from './shell/pages/Settings'
 
 // Lazy-loaded so picking one sport doesn't pull the other sport's whole
 // route tree (pages, engine modules, PDF export libs, etc.) into the
@@ -48,6 +52,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
+        <AdminProvider>
         <BrowserRouter>
           <SportRouteSync />
           <div className="md:flex min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
@@ -63,6 +68,10 @@ export default function App() {
                   <Route path="/people" element={<PlayersShared />} />
                   <Route path="/players" element={<Navigate to="/people" replace />} />
                   <Route path="/expenses" element={<ExpensesShared />} />
+                  {/* One Settings page for the whole app — both sports' own
+                      /settings routes redirect here. See its header for what
+                      the two per-sport pages were disagreeing about. */}
+                  <Route path="/settings" element={<Settings />} />
                   <Route path="/shuttle/*" element={<ShuttleRoutes />} />
                   <Route path="/cricket/*" element={<CricketRoutes />} />
                   <Route path="*" element={<Navigate to="/shuttle" replace />} />
@@ -72,6 +81,7 @@ export default function App() {
             <BottomNav />
           </div>
         </BrowserRouter>
+        </AdminProvider>
       </ToastProvider>
     </ThemeProvider>
   )
