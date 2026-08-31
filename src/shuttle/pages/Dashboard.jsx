@@ -2,8 +2,6 @@
 import React, { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useStats } from '../hooks/useStats'
-import { useExpenses } from '../hooks/useExpenses'
-import { suggestNextPayer } from '../engine/expenseEngine'
 import {
   leaderboard,
   computePlayerStats,
@@ -19,6 +17,7 @@ import SampleTag from '../components/SampleTag'
 import Footer from '../components/Footer'
 import { CalendarIcon, PeopleIcon, ActivityIcon, TrophyIcon } from '../components/icons'
 import { ListSkeleton, MetricGridSkeleton, ButtonRowSkeleton } from '../components/Skeleton'
+import NextPayerCard from '../../shell/components/NextPayerCard'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -39,45 +38,7 @@ function AvatarStack({ players }) {
   )
 }
 
-/**
- * "Who's paying this week?" - the one expense decision the group remakes every
- * week, so it belongs on the surface they already open rather than behind a
- * nav item. Also the mobile route into /expenses, which isn't in the bottom
- * bar (see NAV_ITEMS in Navbar.jsx for why).
- */
-function PayingThisWeek({ expenses, players, playersById }) {
-  const suggestion = suggestNextPayer(expenses, players)
-  const player = suggestion ? playersById[suggestion.playerId] : null
-  return (
-    <Link
-      to="/expenses"
-      className="block bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-3 mb-5 transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
-    >
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Who&apos;s paying next?</p>
-        <span className="text-[11px] text-gray-400 dark:text-gray-500">Expenses →</span>
-      </div>
-      <div className="bg-brand-light dark:bg-brand/15 rounded-lg px-3 py-2">
-        {player ? (
-          <div className="flex items-center gap-2 min-w-0">
-            <Avatar id={player.id} name={player.name} size="xs" />
-            <span className="text-sm font-medium text-green-900 dark:text-green-200 truncate">{player.name}</span>
-            <span className="text-[11px] text-green-700 dark:text-green-300/80 truncate ml-auto shrink-0">
-              {suggestion.reason}
-            </span>
-          </div>
-        ) : (
-          <span className="text-sm font-medium text-green-900 dark:text-green-200">
-            Pick anyone — nothing logged yet
-          </span>
-        )}
-      </div>
-    </Link>
-  )
-}
-
 export default function Dashboard() {
-  const { expenses } = useExpenses()
   const { players, sessions, statsById, loading } = useStats()
 
   const playersById = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players])
@@ -208,7 +169,7 @@ export default function Dashboard() {
         />
       </div>
 
-      <PayingThisWeek expenses={expenses} players={players} playersById={playersById} />
+      <NextPayerCard className="mb-5" />
 
       <div className="grid grid-cols-3 gap-2 mb-5">
         <Link
@@ -218,7 +179,7 @@ export default function Dashboard() {
           New Session
         </Link>
         <Link
-          to="/players"
+          to="/shuttle/players"
           className="border border-gray-300 dark:border-gray-700 text-center text-xs font-medium text-gray-700 dark:text-gray-300 rounded-lg py-2.5 transition-colors active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-gray-800"
         >
           View Players

@@ -15,9 +15,9 @@
 // to port from — paste them if you'd like the visual details matched more
 // closely than what's here.
 import React from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useShellStore, SPORTS } from '../store/useShellStore'
-import { SPORT_NAV_ITEMS, SHARED_NAV_ITEMS, SPORT_META } from '../config/navConfig'
+import { SHARED_NAV_ITEMS, SPORT_META, navItemsFor } from '../config/navConfig'
 import Icon from './icons'
 
 function SportButton({ sport, isActive, onClick }) {
@@ -44,7 +44,7 @@ function NavItem({ item, accent }) {
   return (
     <NavLink
       to={item.path}
-      end={item.path.split('/').length <= 2}
+      end={item.end ?? item.path.split('/').length <= 2}
       className={({ isActive }) =>
         [
           'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
@@ -62,12 +62,34 @@ function NavItem({ item, accent }) {
 }
 
 export default function Sidebar() {
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
   const currentSport = useShellStore((s) => s.currentSport)
   const setSport = useShellStore((s) => s.setSport)
   const accent = SPORT_META[currentSport].accent
+  // Usually the selected sport's items; Box Cricket is the one section that
+  // swaps them from the URL instead — see navConfig.js.
+  const navItems = navItemsFor(pathname, currentSport)
+
+  // Switching sport has to move the router too, not just the store — picking
+  // Cricket while sitting on /shuttle used to swap the nav list underneath you
+  // while the Shuttle dashboard stayed on screen. Land on the sport's home.
+  const switchSport = (sport) => {
+    setSport(sport)
+    navigate(`/${sport}`)
+  }
 
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 min-h-screen p-4">
+      {/* 0. Brand — ported from Shuttle Manager's own Sidebar, which carried
+          the app name + "A Gokul Kanish Product" above its nav. The name is
+          the SHELL's (Sports Manager, per index.html/manifest), not either
+          sport's, since the switcher right below it is what picks a sport. */}
+      <div className="px-1 mb-5">
+        <span className="block font-semibold leading-tight text-gray-900 dark:text-gray-100">Sports Manager</span>
+        <span className="text-[10px] text-gray-400 dark:text-gray-500">A Gokul Kanish Product</span>
+      </div>
+
       {/* 1. Sport switcher */}
       <div className="flex gap-2 p-1 rounded-2xl bg-gray-50 dark:bg-gray-800/50 mb-6">
         {Object.values(SPORTS).map((sport) => (
@@ -75,14 +97,14 @@ export default function Sidebar() {
             key={sport}
             sport={sport}
             isActive={sport === currentSport}
-            onClick={() => setSport(sport)}
+            onClick={() => switchSport(sport)}
           />
         ))}
       </div>
 
       {/* 2. Sport-specific nav — swaps when the switcher above changes */}
       <nav className="flex flex-col gap-1 mb-6">
-        {SPORT_NAV_ITEMS[currentSport].map((item) => (
+        {navItems.map((item) => (
           <NavItem key={item.path} item={item} accent={accent} />
         ))}
       </nav>

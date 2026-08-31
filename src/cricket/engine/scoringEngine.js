@@ -35,6 +35,17 @@
 //   context to update (it doesn't consume a ball or touch any bowler's
 //   figures), and the retiree can't be selected again later.
 
+// BOX CRICKET — "a six is out".
+//
+// Box matches are played in a cage, so many groups rule that clearing it is
+// a dismissal rather than six runs. When a match was created with
+// `boxRules.sixIsOut`, the Live Scoring pad swaps its 6 button for a
+// six-out button, which logs an ordinary wicket ball with
+// `wicketType: 'sixout'` and `runs: 0`. Nothing in this engine special-cases
+// it beyond that: it's a legal delivery, it counts a wicket, and — like
+// caught or bowled, and unlike a run-out — it credits the bowler. The only
+// place the name matters is the scorecard's dismissal line.
+
 // TOURNAMENT MATCHES — the un-tracked opposition side.
 //
 // A tournament match is an ordinary match document (same `cricketMatches`

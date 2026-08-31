@@ -5,7 +5,7 @@ import { useMatches } from '../hooks/useMatch'
 import { useTournaments } from '../hooks/useTournaments'
 import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 
 // Common stage labels as a shortcut — but `tournamentStage` is free text, so

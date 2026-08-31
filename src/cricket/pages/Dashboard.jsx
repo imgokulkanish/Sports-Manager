@@ -21,6 +21,8 @@ import { ListSkeleton } from '../components/Skeleton'
 import { formatOversDisplay } from '../utils'
 import { BatIcon, BallIcon, StopwatchIcon, TargetIcon, ShieldIcon, CrosshairIcon } from '../components/StatIcons'
 import MvpInfoModal from '../components/MvpInfoModal'
+import NextPayerCard from '../../shell/components/NextPayerCard'
+import { useMatchVariant } from '../context/MatchVariant'
 
 function CalendarIcon() {
   return (
@@ -56,8 +58,12 @@ function TrophyIcon() {
 }
 
 export default function Dashboard() {
+  const variant = useMatchVariant()
+  const { basePath } = variant
   const { players, matches, statsById, loading } = useStats()
-  const { tournaments } = useTournaments()
+  // Tournaments belong to full cricket only — a tournament envelope points at
+  // `cricketMatches` docs, so Box Cricket skips the listener entirely.
+  const { tournaments } = useTournaments(variant.supportsTournaments)
   const [showMvpInfo, setShowMvpInfo] = useState(false)
 
   // On the day of an event the tournament screen is the one you actually
@@ -170,7 +176,14 @@ export default function Dashboard() {
     <div className="max-w-5xl mx-auto p-4 pb-24 md:pb-8">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">Cricket Manager</h1>
+          <h1 className="text-lg font-semibold text-gray-900">
+            {variant.key === 'box' ? 'Box Cricket' : 'Cricket Manager'}
+          </h1>
+          {/* Says the quiet part out loud on every visit: these two ledgers
+              never mix. See context/MatchVariant.jsx for how that's enforced. */}
+          {variant.key === 'box' && (
+            <p className="text-[11px] text-gray-400">Separate records — not counted in cricket stats</p>
+          )}
         </div>
         <Link to="/cricket/settings" aria-label="Settings" className="text-gray-400 text-xl">
           ⚙
@@ -195,6 +208,20 @@ export default function Dashboard() {
         </Link>
       )}
 
+      {/* Discovery: Box Cricket rides in the More sheet on a phone and low in
+          the sidebar on desktop, so the cricket home surfaces it directly
+          rather than relying on someone finding the nav item. */}
+      {variant.supportsTournaments && (
+        <Link to="/cricket/box" className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2.5 mb-4">
+          <span className="w-8 h-8 rounded-full bg-pitch-light text-pitch flex items-center justify-center shrink-0 text-base">🧱</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-gray-900">Box Cricket</p>
+            <p className="text-[11px] text-gray-400">Own matches, own stats — kept out of the numbers below</p>
+          </div>
+          <span className="text-xs font-semibold text-pitch shrink-0">Open →</span>
+        </Link>
+      )}
+
       <div className="grid grid-cols-2 gap-3 mb-5">
         <MetricCard label="Total matches" value={totalMatches} icon={<CalendarIcon />} />
         <MetricCard label="Total players" value={totalPlayers} icon={<PeopleIcon />} />
@@ -202,22 +229,36 @@ export default function Dashboard() {
         <div />
       </div>
 
+      {/* Expenses are one joint pot across both sports, so the rotation's
+          answer is the same here as on Shuttle's dashboard — same component,
+          same shared data. Box cricket draws on that same pot, so repeating
+          the card one level deeper would only be the same answer twice. */}
+      {variant.supportsTournaments && <NextPayerCard className="mb-5" />}
+
       {/* 2x2 on a phone, one row on desktop — four items at text-xs across a
           phone would be too cramped to tap. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
-        <Link to="/cricket/match/new" className="bg-pitch text-white text-center text-xs font-semibold rounded-lg py-2.5">
+        <Link to={`${basePath}/match/new`} className="bg-pitch text-white text-center text-xs font-semibold rounded-lg py-2.5">
           New Match
         </Link>
-        <Link
-          to={activeTournament ? `/cricket/tournament/${activeTournament.id}/match/new` : '/cricket/tournament/new'}
-          className="border border-pitch-border bg-pitch-light text-center text-xs font-semibold text-pitch rounded-lg py-2.5"
-        >
-          {activeTournament ? 'Add Round' : 'New Tournament'}
-        </Link>
-        <Link to="/players" className="border border-gray-300 text-center text-xs font-medium text-gray-700 rounded-lg py-2.5">
+        {/* Full cricket's second slot is tournaments; box cricket has none, so
+            it points at its own stats rather than leaving a gap. */}
+        {variant.supportsTournaments ? (
+          <Link
+            to={activeTournament ? `/cricket/tournament/${activeTournament.id}/match/new` : '/cricket/tournament/new'}
+            className="border border-pitch-border bg-pitch-light text-center text-xs font-semibold text-pitch rounded-lg py-2.5"
+          >
+            {activeTournament ? 'Add Round' : 'New Tournament'}
+          </Link>
+        ) : (
+          <Link to={`${basePath}/stats`} className="border border-pitch-border bg-pitch-light text-center text-xs font-semibold text-pitch rounded-lg py-2.5">
+            Box Stats
+          </Link>
+        )}
+        <Link to="/cricket/players" className="border border-gray-300 text-center text-xs font-medium text-gray-700 rounded-lg py-2.5">
           View Players
         </Link>
-        <Link to="/cricket/history" className="border border-gray-300 text-center text-xs font-medium text-gray-700 rounded-lg py-2.5">
+        <Link to={`${basePath}/history`} className="border border-gray-300 text-center text-xs font-medium text-gray-700 rounded-lg py-2.5">
           History
         </Link>
       </div>
@@ -228,7 +269,7 @@ export default function Dashboard() {
           <div className="flex flex-col gap-2">
             {recentMatches.length === 0 && <p className="text-sm text-gray-400">No matches yet.</p>}
             {recentMatches.map((m) => (
-              <Link key={m.id} to={m.status === 'completed' ? `/cricket/match/${m.id}` : `/cricket/match/${m.id}/live`} className="bg-white border border-gray-200 rounded-lg p-3 flex items-center justify-between gap-2">
+              <Link key={m.id} to={m.status === 'completed' ? `${basePath}/match/${m.id}` : `${basePath}/match/${m.id}/live`} className="bg-white border border-gray-200 rounded-lg p-3 flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-gray-900">
                     {new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}

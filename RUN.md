@@ -1,4 +1,4 @@
-# Running Smashers
+# Running Sports Manager
 
 This is the actual assembled repo — both apps' real source physically
 moved in, route prefixes applied, shared Players/Expenses wired to real
@@ -44,8 +44,10 @@ npm run dev
 ```
 
 Opens at `localhost:5173`. `/shuttle` and `/cricket` are the two sport
-areas; `/players` and `/expenses` are shared regardless of which sport is
-selected.
+areas, each with its own roster at `/shuttle/players` and
+`/cricket/players` (per-player stats are sport-specific, so the rosters
+are too). Shared regardless of the selected sport: `/expenses` (one joint
+pot) and `/people` (linking one person's two sport identities).
 
 ## 5. One-time backfill (optional but recommended)
 
@@ -58,17 +60,19 @@ node scripts/backfillExpenseSport.js
 
 ## 6. Link players who play both sports
 
-Go to `/players` and use the "Link a person across sports" form to connect
-someone's existing Shuttle player record with their existing Cricket player
-record. Nothing else needs linking — the joint expense pot and shared
-roster view both key off this.
+Go to `/people` ("Link people" in the sidebar) and use the "Link a person
+across sports" form to connect someone's existing Shuttle player record
+with their existing Cricket player record. This affects the joint expense
+pot only — it makes the rotation count that person once instead of twice.
+Each sport's stats stay entirely separate either way, so linking is
+optional and nothing breaks if you never do it.
 
 ## 7. Deploy
 
 `netlify.toml` is already configured (same as both original apps — SPA
 redirect to `index.html`). Point a new Netlify site at this repo, or drag
 the `dist/` folder from `npm run build` into Netlify's manual deploy.
-Site name per `NAMING.md`: `smashers-gk`.
+Site name per `NAMING.md`: `sportsmanager-gk`.
 
 ---
 
@@ -83,11 +87,15 @@ Site name per `NAMING.md`: `smashers-gk`.
 - **~25 internal route references prefixed** (`/session/...` → `/shuttle/
   session/...`, `/match/...` → `/cricket/match/...`, etc.) across both
   apps' `Navbar.jsx` and pages — every one found via `grep`, listed, then
-  mechanically rewritten; `/players` and `/expenses` deliberately left
-  unprefixed since those are the shared routes.
-- **`Players.jsx`/`Expenses.jsx` pages in both apps are simply unrouted**,
-  not deleted — `ShuttleRoutes.jsx`/`CricketRoutes.jsx` route everything
-  else to the real, original page components.
+  mechanically rewritten; `/expenses` deliberately left unprefixed since
+  it is the one genuinely shared route.
+- **`Players.jsx` in both apps is routed again** at `/shuttle/players` and
+  `/cricket/players`. It briefly wasn't: a single shared roster page could
+  only link identities, while every per-player stat lives in each sport's
+  own page against its own matches. The shared page kept only the linking
+  job and moved to `/people`.
+- **`Expenses.jsx` in both apps is simply unrouted**, not deleted — the
+  shared `/expenses` supersedes it.
 - **Shared UI (`Toast`, `ConfirmDialog`, `Skeleton`, `Footer`, `Avatar`)**
   live once in `src/shell/components/`, used only by the shared Players/
   Expenses pages. Each sport's own internal pages keep using their own

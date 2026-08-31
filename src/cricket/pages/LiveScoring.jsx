@@ -16,11 +16,17 @@ import { formatOversDisplay } from '../utils'
 import ScoreInputPad from '../components/ScoreInputPad'
 import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useAdmin } from '../components/Admin'
+import { useMatchVariant, sixIsOut as matchSixIsOut } from '../context/MatchVariant'
 
 const WICKET_TYPES = ['bowled', 'caught', 'lbw', 'runout', 'stumped', 'other']
+// Box Cricket's "a six is out" adds one more way to get out. It's only
+// offered on matches that were created with the rule on — see
+// context/MatchVariant.jsx — so a full-cricket scorer never sees it.
+const SIX_OUT_TYPE = 'sixout'
+const WICKET_TYPE_LABELS = { sixout: 'six out (hit out of the box)' }
 
 export default function LiveScoring() {
   const { id } = useParams()
@@ -29,6 +35,8 @@ export default function LiveScoring() {
   const { players, addPlayer } = usePlayers()
   const { showToast } = useToast()
   const { isAdmin } = useAdmin()
+  const variant = useMatchVariant()
+  const { basePath } = variant
 
   const playersById = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players])
 
@@ -100,8 +108,8 @@ export default function LiveScoring() {
   }
 
   useEffect(() => {
-    if (match?.status === 'completed') navigate(`/cricket/match/${id}`, { replace: true })
-  }, [match?.status, id, navigate])
+    if (match?.status === 'completed') navigate(`${basePath}/match/${id}`, { replace: true })
+  }, [match?.status, id, navigate, basePath])
 
   if (loading || !match || match.status === 'completed') {
     return (
@@ -124,6 +132,12 @@ export default function LiveScoring() {
   // side — see scoringEngine.js.
   const isExternal = (team) => Boolean(team?.isExternal)
   const isTournamentMatch = Boolean(match.isTournament)
+
+  // Read off the MATCH, not the variant: the rule was chosen when the match
+  // was created, so a match played under one setting keeps scoring that way
+  // even if the default later changes.
+  const sixOutRule = matchSixIsOut(match)
+  const wicketTypeOptions = sixOutRule ? [...WICKET_TYPES, SIX_OUT_TYPE] : WICKET_TYPES
 
   const firstBattingTeam = match.toss.decision === 'bat' ? match.toss.wonBy : match.toss.wonBy === 'A' ? 'B' : 'A'
 
@@ -289,12 +303,25 @@ export default function LiveScoring() {
   // `extra` is set when opened from the Wide/No ball "also a wicket" combo
   // in ScoreInputPad — a batsman can still be run out or stumped off a wide
   // or no ball, even though it isn't a normal wicket-taking delivery.
-  const openWicketModal = (extra = null) => {
+  // `presetType` is set by Box Cricket's six-out button, which already knows
+  // how the batsman got out; the modal still opens so the scorer can correct
+  // which batsman it was (a six can only come off the striker, but the
+  // "Change" flow means the striker on screen isn't always right).
+  const openWicketModal = (extra = null, presetType = null) => {
     setWicketOutId(context.strikerId)
     setWicketFielderId('')
-    setWicketType(extra ? 'runout' : 'bowled')
+    setWicketType(presetType || (extra ? 'runout' : 'bowled'))
     setWicketExtra(extra)
     setWicketModalOpen(true)
+  }
+
+  // BOX CRICKET — clearing the cage is a dismissal, not six runs. Logged as
+  // an ordinary wicket ball with runs: 0, so every existing code path (team
+  // total, over count, bowler figures, undo) handles it with no special
+  // casing — see scoringEngine.js.
+  const handleSixOut = () => {
+    if (context.needsNewBatsman || context.needsNewOver) return
+    openWicketModal(null, SIX_OUT_TYPE)
   }
 
   const submitWicket = () =>
@@ -522,7 +549,7 @@ export default function LiveScoring() {
       await Promise.race([completeMatch({ winner: result.winner, margin: result.margin, manOfTheMatch: finalMotmId }), timeout])
       setConfirmComplete(false)
       showToast('Match completed')
-      navigate(`/cricket/match/${id}`)
+      navigate(`${basePath}/match/${id}`)
     } catch (error) {
       console.error('completeMatch failed', error)
       showToast(error?.message || 'Failed to complete match. Please try again.', 'error')
@@ -540,10 +567,10 @@ export default function LiveScoring() {
   const handleDeleteMatch = async () => {
     try {
       const isTournament = match.isTournament && match.tournamentId
-      await deleteMatchById(id)
+      await deleteMatchById(id, variant.collection)
       setConfirmDeleteMatch(false)
       showToast('Match deleted')
-      navigate(isTournament ? `/cricket/tournament/${match.tournamentId}` : '/cricket/history')
+      navigate(isTournament ? `/cricket/tournament/${match.tournamentId}` : `${basePath}/history`)
     } catch (error) {
       console.error('deleteMatch failed', error)
       showToast(error?.message || 'Could not delete the match. Please try again.', 'error')
@@ -821,6 +848,17 @@ export default function LiveScoring() {
           {match.tournamentStage || 'Tournament'} · vs {match.opponentName || match.teamB?.name}
         </Link>
       )}
+      {/* Box Cricket's headline rule, kept on screen for the whole innings —
+          the scorer needs to know which way this match was set up before
+          they tap the sixth key, not after. */}
+      {variant.key === 'box' && (
+        <div className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 mb-2 ${sixOutRule ? 'bg-red-50 border-red-200' : 'bg-pitch-light border-pitch-border'}`}>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Box</span>
+          <span className={`text-[11px] font-medium ${sixOutRule ? 'text-red-700' : 'text-pitch-dark'}`}>
+            {sixOutRule ? 'A six is OUT' : 'Sixes allowed'}
+          </span>
+        </div>
+      )}
       <div className="bg-pitch text-white rounded-xl p-4 mb-4">
         <p className="text-xs opacity-70">{battingTeam.name} batting</p>
         <p className="text-3xl font-semibold">
@@ -975,6 +1013,8 @@ export default function LiveScoring() {
               onNoBall={handleNoBall}
               onWideWicket={handleWideWicket}
               onNoBallWicket={handleNoBallWicket}
+              onSixOut={handleSixOut}
+              sixIsOut={sixOutRule}
               disabled={submitting}
             />
           )}
@@ -1104,9 +1144,9 @@ export default function LiveScoring() {
             )}
             <label className="text-xs text-gray-500">Type</label>
             <select value={wicketType} onChange={(e) => setWicketType(e.target.value)} className="w-full mt-1 mb-3 border border-gray-300 rounded-lg px-3 py-2 text-sm capitalize">
-              {WICKET_TYPES.map((t) => (
+              {wicketTypeOptions.map((t) => (
                 <option key={t} value={t}>
-                  {t}
+                  {WICKET_TYPE_LABELS[t] || t}
                 </option>
               ))}
             </select>

@@ -4,7 +4,7 @@ import { firebaseStatus } from '../firebase'
 import { useTheme } from '../theme'
 import Footer from '../components/Footer'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import { useAdmin } from '../components/Admin'
 
 const APP_VERSION = '1.0.0'

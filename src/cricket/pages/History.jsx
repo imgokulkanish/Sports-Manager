@@ -7,9 +7,10 @@ import { StatusBadge } from '../components/StatsBadge'
 import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import { useAdmin } from '../components/Admin'
 import { matchResultHeadline } from '../engine/scoringEngine'
+import { useMatchVariant, sixIsOut as matchSixIsOut } from '../context/MatchVariant'
 
 // Tournaments are folded in here as a tab rather than getting their own nav
 // item — they're past events, which is exactly what History is for, and the
@@ -20,8 +21,11 @@ const TABS = [
 ]
 
 export default function History() {
+  const variant = useMatchVariant()
   const { players, allMatches, loading } = useStats()
-  const { tournaments, loading: tournamentsLoading } = useTournaments()
+  // Box Cricket has no tournaments of its own — a tournament envelope points
+  // at full-cricket match docs — so the tab and its listener are both off.
+  const { tournaments, loading: tournamentsLoading } = useTournaments(variant.supportsTournaments)
   const { showToast } = useToast()
   const { isAdmin } = useAdmin()
   // Holds the match pending deletion, so the confirm dialog can name it —
@@ -56,7 +60,7 @@ export default function History() {
   const handleDelete = async () => {
     if (!pendingDelete) return
     try {
-      await deleteMatchById(pendingDelete.id)
+      await deleteMatchById(pendingDelete.id, variant.collection)
       setPendingDelete(null)
       showToast('Match deleted')
     } catch (error) {
@@ -75,21 +79,25 @@ export default function History() {
 
   return (
     <div className="max-w-3xl mx-auto p-4 pb-24 md:pb-8">
-      <h1 className="text-lg font-semibold text-gray-900 mb-3">History</h1>
+      <h1 className="text-lg font-semibold text-gray-900 mb-3">
+        {variant.supportsTournaments ? 'History' : `${variant.label} history`}
+      </h1>
 
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`rounded-lg border py-2 text-sm font-medium ${tab === t.key ? 'bg-pitch-light border-pitch text-pitch' : 'border-gray-200 text-gray-600'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {variant.supportsTournaments && (
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`rounded-lg border py-2 text-sm font-medium ${tab === t.key ? 'bg-pitch-light border-pitch text-pitch' : 'border-gray-200 text-gray-600'}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {tab === 'matches' ? (
+      {tab === 'matches' || !variant.supportsTournaments ? (
         <>
           <div className="grid grid-cols-2 gap-2 mb-3">
             <div>
@@ -115,7 +123,7 @@ export default function History() {
             {filtered.length === 0 && <p className="text-sm text-gray-400 text-center py-8">No matches found.</p>}
             {filtered.map((m) => (
               <div key={m.id} className="bg-white border border-gray-200 rounded-lg p-3">
-                <Link to={`/cricket/match/${m.id}`} className="block">
+                <Link to={`${variant.basePath}/match/${m.id}`} className="block">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <p className="text-sm font-medium text-gray-900">{new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</p>
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -124,6 +132,14 @@ export default function History() {
                       {m.isTournament && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-pitch-light text-pitch border border-pitch-border truncate max-w-[9rem]">
                           {m.tournamentStage || 'Tournament'}
+                        </span>
+                      )}
+                      {/* Box matches are only ever mixed with each other, but
+                          the two six rules produce very different scorecards,
+                          so the list says which one this row was played under. */}
+                      {matchSixIsOut(m) && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-50 text-red-700 border border-red-200 shrink-0">
+                          6 = out
                         </span>
                       )}
                       <StatusBadge status={m.status} />

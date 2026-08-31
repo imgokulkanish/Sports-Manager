@@ -12,10 +12,14 @@
 //     while dark mode is on will look "off" (light-only) until someone
 //     retrofits dark: variants there — that's an existing gap this shell
 //     surfaces rather than causes, flagging so it's not a surprise.
-//   - ToastProvider — ASSUMING Shuttle's and Cricket's Toast.jsx components
-//     are API-compatible (same useToast() hook shape). Using Shuttle's here
-//     as the one true instance; paste both files if you want this confirmed
-//     rather than assumed before wiring real pages in.
+//   - ToastProvider — CONFIRMED: Shuttle's and Cricket's Toast.jsx were the
+//     same useToast() shape, so Shuttle's became the one true instance here
+//     and both sports' copies were deleted. They each called createContext()
+//     themselves, and two contexts meant every page that toasts threw
+//     "must be used within a ToastProvider" and white-screened. Pages now
+//     import useToast from shell/components/Toast directly — deliberately
+//     NOT via a per-sport re-export shim, since a file that only re-exports
+//     gives react-refresh no component to anchor to and goes stale in dev.
 //
 // Providers deliberately NOT lifted here:
 //   - AdminProvider — stays per-sport (each of ShuttleRoutes/CricketRoutes
@@ -28,6 +32,7 @@ import { ThemeProvider } from './theme' // moved from shuttle-manager/src/theme.
 import { ToastProvider } from './shell/components/Toast' // moved from shuttle-manager/src/components/Toast.jsx, unchanged
 import Sidebar from './shell/components/Sidebar'
 import BottomNav from './shell/components/BottomNav'
+import SportRouteSync from './shell/hooks/useSportRouteSync'
 import PlayersShared from './shell/pages/PlayersShared'
 import ExpensesShared from './shell/pages/ExpensesShared'
 
@@ -44,13 +49,19 @@ export default function App() {
     <ThemeProvider>
       <ToastProvider>
         <BrowserRouter>
+          <SportRouteSync />
           <div className="md:flex min-h-screen bg-gray-50 dark:bg-gray-950 transition-colors">
             <Sidebar />
             <main className="flex-1 min-w-0 pb-20 md:pb-0">
               <Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading…</div>}>
                 <Routes>
                   <Route path="/" element={<Navigate to="/shuttle" replace />} />
-                  <Route path="/players" element={<PlayersShared />} />
+                  {/* The shared page is now ONLY the cross-sport identity
+                      link — each sport's real roster (with its own stats)
+                      lives at /shuttle/players and /cricket/players. Old
+                      /players links redirect rather than 404 into Shuttle. */}
+                  <Route path="/people" element={<PlayersShared />} />
+                  <Route path="/players" element={<Navigate to="/people" replace />} />
                   <Route path="/expenses" element={<ExpensesShared />} />
                   <Route path="/shuttle/*" element={<ShuttleRoutes />} />
                   <Route path="/cricket/*" element={<CricketRoutes />} />

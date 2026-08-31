@@ -2,7 +2,7 @@
 //
 // Moved from shuttle-manager/src/theme.jsx — otherwise identical, one
 // change: STORAGE_KEY renamed from 'shuttle-manager:theme' to
-// 'smashers:theme' to match the rename in index.html's inline script (see
+// 'sportsmanager:theme' to match the rename in index.html's inline script (see
 // that file's comment for why — it's a one-time, harmless reset of saved
 // preference, not a data concern). Everything else, including the
 // light-default-not-system-default reasoning in the header comment, is
@@ -10,7 +10,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 const ThemeContext = createContext(null)
-const STORAGE_KEY = 'smashers:theme'
+const STORAGE_KEY = 'sportsmanager:theme'
 const DEFAULT_PREFERENCE = 'light'
 
 function systemPrefersDark() {

@@ -19,7 +19,7 @@ import Avatar from '../components/Avatar'
 import Footer from '../components/Footer'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { ListSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import { BTN_SOLID } from '../styles'
 
 const INPUT =

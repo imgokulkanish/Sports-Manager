@@ -1,6 +1,17 @@
-// PlayersShared.jsx
+// PlayersShared.jsx  —  routed at /people ("Link people")
 //
-// First real (non-stub) version. Composes THREE existing/new hooks:
+// NARROWED: this page is no longer "the Players page". Each sport's real
+// roster went back to that sport (/shuttle/players, /cricket/players),
+// because everything you actually do to a player — per-player stats, the
+// detail modal, add/edit/archive, role filters — is sport-specific, and
+// badminton stats and cricket stats have no overlapping fields to merge.
+//
+// What is left here is the one genuinely cross-sport job: declaring that
+// a Shuttle player and a Cricket player are the SAME PERSON. That link is
+// what lets the expense rotation treat both sports as one joint pot (see
+// expenseEngine.js) instead of asking the same person twice.
+//
+// Composes THREE existing/new hooks:
 //   - Shuttle's usePlayers()  (unchanged, moved as-is)
 //   - Cricket's usePlayers()  (unchanged, moved as-is — note both files are
 //     literally named usePlayers.js in their original repos; aliased on
@@ -23,6 +34,7 @@ import { usePlayers as useShuttlePlayers } from '../../shuttle/hooks/usePlayers'
 import { usePlayers as useCricketPlayers } from '../../cricket/hooks/usePlayers'
 import { usePlayerLinks } from '../hooks/usePlayerLinks'
 import { mergePeople } from '../lib/mergePeople'
+import { Link } from 'react-router-dom'
 
 const PALETTE = ['#1F6F4A', '#0F7A6B', '#2563EB', '#7C3AED', '#DC2626', '#475569']
 function initials(name = '') {
@@ -135,10 +147,28 @@ export default function PlayersShared() {
 
   return (
     <div className="max-w-2xl mx-auto p-4 pb-24 md:pb-8">
-      <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Players</h1>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-        {people.filter((p) => p.linked).length} linked across both sports · {people.length} total
+      <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Link people</h1>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        Match up someone's badminton and cricket entries so the expense rotation counts them
+        once, not twice. {people.filter((p) => p.linked).length} linked · {people.length} total.
       </p>
+
+      {/* This page can't add, edit or archive anyone, and shows no stats —
+          that's each sport's own roster, one tap away. */}
+      <div className="flex gap-2 mb-5">
+        <Link
+          to="/shuttle/players"
+          className="flex-1 text-center text-xs font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 rounded-lg py-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+        >
+          🏸 Badminton players →
+        </Link>
+        <Link
+          to="/cricket/players"
+          className="flex-1 text-center text-xs font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 rounded-lg py-2 hover:bg-gray-50 dark:hover:bg-gray-800"
+        >
+          🏏 Cricket players →
+        </Link>
+      </div>
 
       <LinkForm unlinkedShuttle={unlinkedShuttle} unlinkedCricket={unlinkedCricket} onLink={createLink} />
 

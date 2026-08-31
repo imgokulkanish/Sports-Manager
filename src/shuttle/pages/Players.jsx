@@ -10,7 +10,7 @@ import Footer from '../components/Footer'
 import EmptyState from '../components/EmptyState'
 import { PeopleIcon } from '../components/icons'
 import { GridSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import { useAdmin } from '../components/Admin'
 
 export default function Players() {

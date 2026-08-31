@@ -28,7 +28,7 @@ import Footer from '../components/Footer'
 import EmptyState from '../components/EmptyState'
 import { PeopleIcon } from '../components/icons'
 import { ListSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import { BTN_OUTLINE, BTN_SOLID } from '../styles'
 
 const FORMATS = {
@@ -215,7 +215,7 @@ export default function QuickMatch() {
           title="Add some players first"
           message="Quick matches need at least one player on the roster — guests can fill the rest of the court."
           action={
-            <Link to="/players" className={`bg-brand text-white rounded-lg px-4 py-2 text-sm font-semibold ${BTN_SOLID}`}>
+            <Link to="/shuttle/players" className={`bg-brand text-white rounded-lg px-4 py-2 text-sm font-semibold ${BTN_SOLID}`}>
               Go to Players
             </Link>
           }

@@ -22,6 +22,12 @@ import {
 
 const BRAND = [15, 122, 107] // #0F7A6B
 
+// Dismissal wording for the PDF scorecard. Only the two non-obvious ones
+// need spelling out: `retired` (retired out) and Box Cricket's `sixout`
+// (see scoringEngine.js); every other wicketType already reads correctly
+// as-is, so it falls through unchanged.
+const HOW_OUT_LABELS = { retired: 'retired out', sixout: 'six out' }
+
 function addHeader(doc, title, subtitleLines = []) {
   const pageWidth = doc.internal.pageSize.getWidth()
   doc.setFillColor(...BRAND)
@@ -62,7 +68,7 @@ function inningsTables(doc, innings, playersById, label, startY) {
 
   const battingRows = Object.entries(derived.batting)
     .sort((a, b) => b[1].runs - a[1].runs)
-    .map(([id, b]) => [name(id), b.isOut ? (b.howOut === 'retired' ? 'retired out' : b.howOut || 'out') : 'not out', b.runs, b.balls, b.fours, b.sixes])
+    .map(([id, b]) => [name(id), b.isOut ? HOW_OUT_LABELS[b.howOut] || b.howOut || 'out' : 'not out', b.runs, b.balls, b.fours, b.sixes])
 
   autoTable(doc, {
     startY: startY + 4,

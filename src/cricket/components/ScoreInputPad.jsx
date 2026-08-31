@@ -1,12 +1,16 @@
 import React, { useState } from 'react'
 
 const RUNS = [0, 1, 2, 3, 4, 6]
+// Box Cricket with "a six is out" has no 6 to score, so the sixth key
+// becomes the dismissal instead of a run — same grid position, so muscle
+// memory still lands on the right button.
+const BOX_RUNS = [0, 1, 2, 3, 4]
 
 // A batsman can still be run out or stumped off a wide/no ball, even though
 // the delivery itself doesn't count as a normal wicket-taking ball — this
 // checkbox routes the tap through the wicket flow (with extraType preset)
 // instead of logging a plain extra.
-export default function ScoreInputPad({ onRun, onWicket, onWide, onNoBall, onWideWicket, onNoBallWicket, disabled }) {
+export default function ScoreInputPad({ onRun, onWicket, onWide, onNoBall, onWideWicket, onNoBallWicket, onSixOut, sixIsOut = false, disabled }) {
   const [extraRuns, setExtraRuns] = useState(1)
   const [extraWicket, setExtraWicket] = useState(false)
 
@@ -26,7 +30,7 @@ export default function ScoreInputPad({ onRun, onWicket, onWide, onNoBall, onWid
   return (
     <div className="flex flex-col gap-2">
       <div className="grid grid-cols-3 gap-2">
-        {RUNS.map((r) => (
+        {(sixIsOut ? BOX_RUNS : RUNS).map((r) => (
           <button
             key={r}
             onClick={() => onRun(r)}
@@ -38,6 +42,16 @@ export default function ScoreInputPad({ onRun, onWicket, onWide, onNoBall, onWid
             {r}
           </button>
         ))}
+        {sixIsOut && (
+          <button
+            onClick={onSixOut}
+            disabled={disabled}
+            className="rounded-lg py-4 leading-tight font-semibold bg-red-600 text-white active:scale-[0.97] transition-transform disabled:opacity-40"
+          >
+            <span className="block text-lg">6</span>
+            <span className="block text-[10px] font-medium tracking-wide opacity-90">OUT</span>
+          </button>
+        )}
       </div>
 
       <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">

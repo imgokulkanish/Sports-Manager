@@ -2,22 +2,34 @@
 import { useEffect, useState, useCallback } from 'react'
 import { db } from '../firebase'
 import { collection, doc, query, orderBy, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
+import { useMatchVariant } from '../context/MatchVariant'
 
 // Own collection (not Shuttle Manager's `sessions`) so the two apps' data
 // stays isolated inside the shared kanishpersonalos project.
-const COLLECTION = 'cricketMatches'
+//
+// WHICH collection is no longer fixed: full cricket writes `cricketMatches`,
+// Box Cricket writes `boxCricketMatches`, chosen by the surrounding
+// MatchVariantProvider. That split IS the "box records don't count toward
+// cricket stats" requirement — the stats engine only ever sees the matches
+// the active variant subscribed to. See context/MatchVariant.jsx.
+const DEFAULT_COLLECTION = 'cricketMatches'
 
 /**
  * Deleting doesn't need the collection subscription that useMatches sets up,
  * so it's a plain function — callers that only delete (match detail, live
  * scoring) would otherwise open a second onSnapshot over every match just to
  * reach this, which is real bandwidth on a phone at the ground.
+ *
+ * `collectionName` defaults to full cricket's, so any caller written before
+ * box cricket existed keeps working unchanged; variant-aware pages pass
+ * `useMatchVariant().collection`.
  */
-export async function deleteMatchById(matchId) {
-  return deleteDoc(doc(db, COLLECTION, matchId))
+export async function deleteMatchById(matchId, collectionName = DEFAULT_COLLECTION) {
+  return deleteDoc(doc(db, collectionName, matchId))
 }
 
 export function useMatches() {
+  const { collection: COLLECTION } = useMatchVariant()
   const [matches, setMatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -36,7 +48,7 @@ export function useMatches() {
       },
     )
     return unsubscribe
-  }, [])
+  }, [COLLECTION])
 
   const createMatch = useCallback(async (matchData) => {
     const ref = await addDoc(collection(db, COLLECTION), {
@@ -50,14 +62,15 @@ export function useMatches() {
       createdAt: serverTimestamp(),
     })
     return ref.id
-  }, [])
+  }, [COLLECTION])
 
-  const deleteMatch = useCallback(async (matchId) => deleteMatchById(matchId), [])
+  const deleteMatch = useCallback(async (matchId) => deleteMatchById(matchId, COLLECTION), [COLLECTION])
 
   return { matches, loading, error, createMatch, deleteMatch }
 }
 
 export function useMatch(matchId) {
+  const { collection: COLLECTION } = useMatchVariant()
   const [match, setMatch] = useState(null)
   const [loading, setLoading] = useState(Boolean(matchId))
   const [error, setError] = useState(null)
@@ -81,14 +94,14 @@ export function useMatch(matchId) {
       },
     )
     return unsubscribe
-  }, [matchId])
+  }, [matchId, COLLECTION])
 
   const updateMatch = useCallback(
     async (data) => {
       if (!matchId) return
       await updateDoc(doc(db, COLLECTION, matchId), data)
     },
-    [matchId],
+    [matchId, COLLECTION],
   )
 
   // --- Innings lifecycle ---------------------------------------------------

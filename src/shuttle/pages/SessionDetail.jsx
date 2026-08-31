@@ -12,7 +12,7 @@ import { ListSkeleton } from '../components/Skeleton'
 import { StatusBadge } from '../components/StatsBadge'
 import SessionEditModal from '../components/SessionEditModal'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import { useAdmin } from '../components/Admin'
 
 // A "round" is a block of time; on a two-court round it holds two matches.

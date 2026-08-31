@@ -4,7 +4,7 @@ import { usePlayers } from '../hooks/usePlayers'
 import { useTournaments } from '../hooks/useTournaments'
 import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 
 // Suggested names — free text, just a shortcut for the common case.

@@ -1,17 +1,25 @@
 // ShuttleRoutes.jsx
 //
 // Real page imports, wired in — this supersedes App.jsx's old routing.
-// Players/Expenses routes are gone from here on purpose: those pages now
-// live in the shell's shared section. Shuttle's own pages/Players.jsx and
-// pages/Expenses.jsx files still exist on disk (untouched) but are no
-// longer routed to from anywhere — harmless dead files, kept rather than
-// deleted in case you want to diff against them later.
+//
+// Players is routed here again (as /shuttle/players). It briefly wasn't:
+// the shell's shared /players page could only LINK a person's two
+// identities, and every per-player stat this app has — win %, achievements,
+// the detail modal, add/archive — only exists on this page, against this
+// sport's own sessions. Shuttle stats and cricket stats share no fields, so
+// there was nothing for one merged roster page to show.
+//
+// Expenses stays out: that one really is cross-sport (one joint pot), and
+// lives at the shell's /expenses. pages/Expenses.jsx still exists on disk,
+// untouched and unrouted — kept rather than deleted so it can be diffed
+// against the shared version.
 import React from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import { AdminProvider } from './components/Admin'
 import Dashboard from './pages/Dashboard'
 import NewSession from './pages/NewSession'
 import QuickMatch from './pages/QuickMatch'
+import Players from './pages/Players'
 import LiveSession from './pages/LiveSession'
 import SessionDetail from './pages/SessionDetail'
 import History from './pages/History'
@@ -26,6 +34,7 @@ function AnimatedRoutes() {
         <Route path="" element={<Dashboard />} />
         <Route path="session/new" element={<NewSession />} />
         <Route path="quick" element={<QuickMatch />} />
+        <Route path="players" element={<Players />} />
         <Route path="session/:id/live" element={<LiveSession />} />
         <Route path="session/:id" element={<SessionDetail />} />
         <Route path="history" element={<History />} />

@@ -21,7 +21,7 @@ import Avatar from '../components/Avatar'
 import EmptyState from '../components/EmptyState'
 import { PeopleIcon } from '../components/icons'
 import { ListSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { BTN_SOLID, BTN_OUTLINE } from '../styles'
 
@@ -349,7 +349,7 @@ export default function NewSession() {
                 message="Add players from the Players tab before creating a session."
                 action={
                   <Link
-                    to="/players"
+                    to="/shuttle/players"
                     className="bg-brand hover:bg-brand-dark text-white text-sm font-medium rounded-lg px-4 py-2 transition-all active:scale-[0.98] inline-block"
                   >
                     Go to Players

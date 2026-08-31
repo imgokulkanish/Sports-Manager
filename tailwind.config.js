@@ -14,10 +14,10 @@ export default {
         },
         // Cricket Manager's accent — used within /cricket pages and nav.
         pitch: {
-          DEFAULT: '#0F7A6B',
-          dark: '#0B5C51',
-          light: '#EAFBF7',
-          border: '#A7EDE0',
+          DEFAULT: '#1F6F4A',
+          dark: '#155238',
+          light: '#F0FDF4',
+          border: '#BBF7D0',
         },
         // Shell chrome anchor (app icon/splash) — deliberately neutral,
         // independent of either sport's accent. See NAMING.md.

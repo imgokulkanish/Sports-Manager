@@ -9,19 +9,19 @@
     <link rel="apple-touch-icon" href="/icons/icon-180.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Smashers" />
-    <title>Smashers</title>
+    <meta name="apple-mobile-web-app-title" content="Sports Manager" />
+    <title>Sports Manager</title>
     <script>
       // Applied before first paint so there's no flash of the wrong theme.
       // CHANGED: localStorage key renamed from 'shuttle-manager:theme' to
-      // 'smashers:theme' — it was never actually Shuttle-specific data, just
+      // 'sportsmanager:theme' — it was never actually Shuttle-specific data, just
       // named after the app it lived in. One-time, harmless reset of
       // everyone's saved light/dark preference on first load of the merged
       // app (falls back to 'light', same as today) — not a data-loss
       // concern, just flagging the one user-visible side effect of the
       // rename so it's not a surprise.
       try {
-        var pref = localStorage.getItem('smashers:theme') || 'light'
+        var pref = localStorage.getItem('sportsmanager:theme') || 'light'
         var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
         if (dark) document.documentElement.classList.add('dark')
       } catch (e) {}

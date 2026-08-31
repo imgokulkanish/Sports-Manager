@@ -17,7 +17,7 @@ export const EXPENSE_CATEGORIES = [
   // --- Cricket Manager (new — pick your own wording/values before shipping,
   //     these are a starting proposal, not a decision) ---
   { value: 'ground', label: 'Ground/turf booking', short: 'Ground', sport: 'cricket' },
-  { value: 'equipment', label: 'Balls, bats, gear', short: 'Gear', sport: 'cricket' },
+  { value: 'equipment', label: 'Bats, balls and other gear', short: 'Bat & Balls', sport: 'cricket' },
   { value: 'cricket-food', label: 'Food after', short: 'Food', sport: 'cricket' },
   { value: 'cricket-snacks', label: 'Pre-match snacks', short: 'Snacks', sport: 'cricket' },
 ]

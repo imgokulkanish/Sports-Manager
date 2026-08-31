@@ -13,12 +13,24 @@ import { collection, doc, query, orderBy, onSnapshot, addDoc, updateDoc, deleteD
 // inside the shared kanishpersonalos project.
 const COLLECTION = 'cricketTournaments'
 
-export function useTournaments() {
+/**
+ * `enabled` exists for Box Cricket, which reuses the same Dashboard/History
+ * pages but has no tournaments of its own (a tournament envelope points at
+ * `cricketMatches` docs). Hooks can't be called conditionally, so the box
+ * pages call this with `false` and it skips opening the listener rather than
+ * paying for a subscription whose results are never rendered.
+ */
+export function useTournaments(enabled = true) {
   const [tournaments, setTournaments] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState(null)
 
   useEffect(() => {
+    if (!enabled) {
+      setTournaments([])
+      setLoading(false)
+      return
+    }
     const q = query(collection(db, COLLECTION), orderBy('date', 'desc'))
     const unsubscribe = onSnapshot(
       q,
@@ -32,7 +44,7 @@ export function useTournaments() {
       },
     )
     return unsubscribe
-  }, [])
+  }, [enabled])
 
   /** @param {{ name: string, date: string, squadPlayerIds: string[] }} data */
   const createTournament = useCallback(async (data) => {

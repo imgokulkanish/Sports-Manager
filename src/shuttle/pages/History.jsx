@@ -9,7 +9,7 @@ import Footer from '../components/Footer'
 import EmptyState from '../components/EmptyState'
 import { CalendarIcon } from '../components/icons'
 import { ListSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import { useAdmin } from '../components/Admin'
 import ConfirmDialog from '../components/ConfirmDialog'
 

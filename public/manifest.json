@@ -1,6 +1,6 @@
 {
-  "name": "Smashers",
-  "short_name": "Smashers",
+  "name": "Sports Manager",
+  "short_name": "Sports Mgr",
   "description": "Badminton and cricket session/match scheduling, live scoring, and stats for the group.",
   "start_url": "/",
   "scope": "/",

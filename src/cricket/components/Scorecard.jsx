@@ -2,7 +2,10 @@ import React from 'react'
 import { deriveInningsState } from '../engine/scoringEngine'
 import { formatOversDisplay } from '../utils'
 
-const WICKET_LABELS = { bowled: 'b', caught: 'c', lbw: 'lbw', runout: 'run out', stumped: 'st', retired: 'retired out', other: 'out' }
+// `sixout` is Box Cricket's "a six is out" rule — see scoringEngine.js. It
+// behaves as an ordinary bowler-credited dismissal, so the line reads
+// "six out b Bowler" exactly like "c b Bowler" does.
+const WICKET_LABELS = { bowled: 'b', caught: 'c', lbw: 'lbw', runout: 'run out', stumped: 'st', retired: 'retired out', sixout: 'six out', other: 'out' }
 
 export default function Scorecard({ innings, playersById, teamLabel }) {
   if (!innings) return null

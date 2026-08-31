@@ -47,8 +47,16 @@ service cloud.firestore {
     match /cricketTournaments/{tournamentId} {
       allow read, write: if true;
     }
+    // Box Cricket keeps its own match documents in their own collection —
+    // that separation is what stops box records reaching the general cricket
+    // leaderboards (see src/cricket/context/MatchVariant.jsx). Same document
+    // shape as cricketMatches, plus a `boxRules` field. The roster is shared,
+    // so there is no boxCricketPlayers: box matches reference cricketPlayers.
+    match /boxCricketMatches/{matchId} {
+      allow read, write: if true;
+    }
 
-    // --- Smashers shell: cross-sport identity linking (NEW) -------------------
+    // --- Sports Manager shell: cross-sport identity linking (NEW) -------------------
     // Additive collection joining a `players/{id}` doc and/or a
     // `cricketPlayers/{id}` doc into one shared person. See EXPENSES_DESIGN.md
     // and NOTES.md for why this exists.

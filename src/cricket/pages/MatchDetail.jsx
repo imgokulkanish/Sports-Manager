@@ -8,8 +8,9 @@ import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
 import { StatusBadge } from '../components/StatsBadge'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import { useAdmin } from '../components/Admin'
+import { useMatchVariant, sixIsOut as matchSixIsOut } from '../context/MatchVariant'
 
 export default function MatchDetail() {
   const { id } = useParams()
@@ -18,15 +19,16 @@ export default function MatchDetail() {
   const { players } = usePlayers()
   const { showToast } = useToast()
   const { isAdmin } = useAdmin()
+  const variant = useMatchVariant()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const playersById = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players])
 
   const handleDelete = async () => {
     try {
-      await deleteMatchById(id)
+      await deleteMatchById(id, variant.collection)
       setConfirmDelete(false)
       showToast('Match deleted')
-      navigate(match?.isTournament && match.tournamentId ? `/cricket/tournament/${match.tournamentId}` : '/cricket/history')
+      navigate(match?.isTournament && match.tournamentId ? `/cricket/tournament/${match.tournamentId}` : `${variant.basePath}/history`)
     } catch (error) {
       console.error('deleteMatch failed', error)
       showToast(error?.message || 'Could not delete the match. Please try again.', 'error')
@@ -63,6 +65,13 @@ export default function MatchDetail() {
         <p className="text-xs text-gray-500">
           {dateStr} {match.venue && `· ${match.venue}`} · Toss: {match.toss?.wonBy === 'A' ? match.teamA?.name : match.teamB?.name} chose to {match.toss?.decision}
         </p>
+        {/* Which box rule this match was played under — a scorecard with no
+            sixes on it reads very differently once you know they were outs. */}
+        {variant.key === 'box' && (
+          <p className="text-xs text-gray-500">
+            Box rules: {matchSixIsOut(match) ? 'a six is out' : 'sixes allowed'}
+          </p>
+        )}
         {(match.teamA?.umpireId || match.teamB?.umpireId) && (
           <p className="text-xs text-gray-500">
             Umpires: {match.teamA?.umpireId ? playersById[match.teamA.umpireId]?.name : '—'} ({match.teamA?.name})
@@ -98,7 +107,7 @@ export default function MatchDetail() {
       </div>
 
       {match.status !== 'completed' && (
-        <Link to={`/cricket/match/${id}/live`} className="block text-center bg-pitch text-white rounded-lg py-3 text-sm font-semibold mt-4">
+        <Link to={`${variant.basePath}/match/${id}/live`} className="block text-center bg-pitch text-white rounded-lg py-3 text-sm font-semibold mt-4">
           Continue Live Scoring
         </Link>
       )}

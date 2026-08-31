@@ -5,10 +5,12 @@ import { useMatches } from '../hooks/useMatch'
 import DraftBoard from '../components/DraftBoard'
 import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { useMatchVariant } from '../context/MatchVariant'
 
 export default function NewMatch() {
+  const variant = useMatchVariant()
   const { players, loading, addPlayer } = usePlayers()
   const { matches, createMatch } = useMatches()
   const { showToast } = useToast()
@@ -17,10 +19,15 @@ export default function NewMatch() {
   const [step, setStep] = useState(1)
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [venue, setVenue] = useState('')
-  const [oversPerInnings, setOversPerInnings] = useState(8)
-  const [maxOversPerBowler, setMaxOversPerBowler] = useState(3)
+  const [oversPerInnings, setOversPerInnings] = useState(variant.defaultOversPerInnings)
+  const [maxOversPerBowler, setMaxOversPerBowler] = useState(variant.defaultMaxOversPerBowler)
   const [poolIds, setPoolIds] = useState([])
   const [guestName, setGuestName] = useState('')
+  // BOX CRICKET — whether clearing the cage is six runs or a dismissal. The
+  // choice is stored ON THE MATCH (not as a global setting) because groups
+  // switch it game to game depending on which box they're in, and a finished
+  // match has to keep scoring the way it was actually played.
+  const [sixIsOut, setSixIsOut] = useState(false)
 
   // Draft state
   const [captainAId, setCaptainAId] = useState('')
@@ -100,6 +107,9 @@ export default function NewMatch() {
     setTeamB(newTeamB)
     setCurrentPicker(null)
     setTeamsFromLastMatch(true)
+    // "Same as last time" covers the rule too — a group that plays a box
+    // where a six is out is almost always in that same box next week.
+    if (variant.supportsSixRule) setSixIsOut(Boolean(lastMatch.boxRules?.sixIsOut))
 
     if (excluded.length) {
       showToast(`Excluded archived player${excluded.length > 1 ? 's' : ''}: ${excluded.map(nameOf).join(', ')}`, 'error')
@@ -174,6 +184,9 @@ export default function NewMatch() {
         maxOversPerBowler: Number(maxOversPerBowler) || null,
         playersPool: poolIds,
         scoringMode,
+        // Only written for variants that offer the rule, so full-cricket
+        // documents keep exactly the shape they have today.
+        ...(variant.supportsSixRule ? { boxRules: { sixIsOut } } : {}),
         teamA: { name: teamAName, captainId: captainAId, playerIds: teamA.filter(Boolean), umpireId: null },
         teamB: { name: teamBName, captainId: captainBId, playerIds: teamB.filter(Boolean), umpireId: null },
         toss: { wonBy: tossWonBy, decision: tossDecision },
@@ -186,7 +199,7 @@ export default function NewMatch() {
         return
       }
 
-      const livePath = `/cricket/match/${matchId}/live`
+      const livePath = `${variant.basePath}/match/${matchId}/live`
       setConfirmStart(false)
       showToast(`Match created (${matchId.slice(0, 6)}). Opening live scoring...`)
       navigate(livePath)
@@ -210,7 +223,7 @@ export default function NewMatch() {
 
   return (
     <div className="max-w-3xl mx-auto p-4 pb-24 md:pb-8">
-      <h1 className="text-lg font-semibold text-gray-900 mb-1">New Match</h1>
+      <h1 className="text-lg font-semibold text-gray-900 mb-1">New {variant.label} Match</h1>
       <div className="flex gap-1 mb-4">
         {[1, 2, 3].map((s) => (
           <div key={s} className={`flex-1 h-1 rounded ${step >= s ? 'bg-pitch' : 'bg-gray-200'}`} />
@@ -250,6 +263,36 @@ export default function NewMatch() {
               <input type="number" value={maxOversPerBowler} onChange={(e) => setMaxOversPerBowler(e.target.value)} className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
+
+          {/* BOX CRICKET — the one rule that changes how the match is scored,
+              so it's asked up front alongside overs, not buried in settings.
+              Two big targets rather than a checkbox: getting this wrong is
+              only noticed once someone has already middled one. */}
+          {variant.supportsSixRule && (
+            <div>
+              <p className="text-xs text-gray-500 mb-2">Is a six allowed?</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSixIsOut(false)}
+                  aria-pressed={!sixIsOut}
+                  className={`rounded-lg border px-3 py-2.5 text-left ${!sixIsOut ? 'border-pitch bg-pitch-light' : 'border-gray-200 bg-white'}`}
+                >
+                  <span className={`block text-sm font-medium ${!sixIsOut ? 'text-pitch-dark' : 'text-gray-900'}`}>Sixes allowed</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">Scores 6 runs, as normal</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSixIsOut(true)}
+                  aria-pressed={sixIsOut}
+                  className={`rounded-lg border px-3 py-2.5 text-left ${sixIsOut ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-white'}`}
+                >
+                  <span className={`block text-sm font-medium ${sixIsOut ? 'text-red-700' : 'text-gray-900'}`}>A six is out</span>
+                  <span className="block text-[11px] text-gray-500 mt-0.5">Clearing the box is a dismissal</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           <div>
             <p className="text-xs text-gray-500 mb-2">Who showed up? ({poolIds.length} selected, minimum 4)</p>
@@ -403,7 +446,9 @@ export default function NewMatch() {
       <ConfirmDialog
         open={confirmStart}
         title="Start this match?"
-        message="This saves the teams and toss result and moves you to live scoring."
+        message={`This saves the teams and toss result and moves you to live scoring.${
+          variant.supportsSixRule ? (sixIsOut ? ' A six will be scored as OUT.' : ' Sixes will be scored as 6 runs.') : ''
+        }`}
         confirmLabel={startingMatch ? 'Starting...' : 'Start'}
         onConfirm={handleStart}
         onCancel={() => !startingMatch && setConfirmStart(false)}

@@ -6,7 +6,7 @@ import PlayerFormModal from '../components/PlayerFormModal'
 import PlayerDetailModal from '../components/PlayerDetailModal'
 import Footer from '../components/Footer'
 import { GridSkeleton } from '../components/Skeleton'
-import { useToast } from '../components/Toast'
+import { useToast } from '../../shell/components/Toast'
 import { useAdmin } from '../components/Admin'
 
 export default function Players() {
