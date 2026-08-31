@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useStats } from '../hooks/useStats'
 import { useTournaments } from '../hooks/useTournaments'
 import {
+  computePlayerStats,
   mvpLeaderboard,
   battingLeaderboard,
   bowlingLeaderboard,
@@ -41,11 +42,21 @@ function PeopleIcon() {
     </svg>
   )
 }
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
 function matchSubtitle(m) {
   const fallback = `${m.teamA?.name} vs ${m.teamB?.name}`
   if (m.status === 'completed') return matchResultHeadline(m) || fallback
   if (m.status === 'live') return liveScoreHeadline(m) || fallback
   return fallback
+}
+
+function ActivityIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 13h4l2.2-6L13 19l2.5-9.5L17 13h4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
 }
 
 function TrophyIcon() {
@@ -78,6 +89,34 @@ export default function Dashboard() {
 
   const totalMatches = matches.filter((m) => m.status === 'completed').length
   const totalPlayers = players.filter((p) => p.isActive).length
+
+  // MOST ACTIVE — who has turned up for the most matches.
+  //
+  // Deliberately NOT gated behind MIN_MVP_MATCHES / MIN_STATS_MATCHES like
+  // the cards and leaderboards around it. Those thresholds exist because an
+  // average over two innings is noise; a match count is a plain tally that
+  // needs no minimum to be honest. Counts appearances (both teams'
+  // playerIds), so a match you were picked for but never batted or bowled in
+  // still counts — the question is who shows up, not who performed.
+  const mostActive = useMemo(() => {
+    const rows = Object.values(statsById).sort(
+      // Name breaks ties so a two-way tie doesn't pick a different winner
+      // depending on roster order.
+      (a, b) => b.matchesPlayed - a.matchesPlayed || a.name.localeCompare(b.name),
+    )
+    const top = rows[0]
+    return top && top.matchesPlayed > 0 ? top : null
+  }, [statsById])
+
+  // Same week-ago-snapshot trick Shuttle's dashboard uses: recompute over
+  // matches older than a week and diff, rather than storing stats history.
+  const mostActiveTrend = useMemo(() => {
+    if (!mostActive) return null
+    const cutoff = Date.now() - WEEK_MS
+    const older = matches.filter((m) => new Date(m.date).getTime() < cutoff)
+    const delta = mostActive.matchesPlayed - (computePlayerStats(older, players)[mostActive.playerId]?.matchesPlayed || 0)
+    return delta > 0 ? { direction: 'up', label: `+${delta} this wk` } : null
+  }, [mostActive, matches, players])
 
   // MVP average swings hard on a single big game, so it needs the same
   // track record (MIN_MVP_MATCHES) as the other leaderboards below before
@@ -232,7 +271,14 @@ export default function Dashboard() {
         <MetricCard label="Total matches" value={totalMatches} icon={<CalendarIcon />} />
         <MetricCard label="Total players" value={totalPlayers} icon={<PeopleIcon />} />
         <MetricCard label="Top MVP avg" value={mvpTop?.name || '—'} sub={mvpTop ? `${mvpTop.avgPoints.toFixed(0)} avg pts/match` : `min ${MIN_MVP_MATCHES} matches`} icon={<TrophyIcon />} accent="pitch" />
-        <div />
+        <MetricCard
+          label="Most active"
+          value={mostActive?.name || '—'}
+          sub={mostActive ? `${mostActive.matchesPlayed} matches` : undefined}
+          trend={mostActiveTrend}
+          icon={<ActivityIcon />}
+          accent="blue"
+        />
       </div>
 
       {/* Expenses are one joint pot across both sports, so the rotation's

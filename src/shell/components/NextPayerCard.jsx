@@ -24,6 +24,7 @@ import { usePlayers as useShuttlePlayers } from '../../shuttle/hooks/usePlayers'
 import { usePlayers as useCricketPlayers } from '../../cricket/hooks/usePlayers'
 import { usePlayerLinks } from '../hooks/usePlayerLinks'
 import { useSharedExpenses } from '../hooks/useSharedExpenses'
+import { useExpenseParticipants } from '../hooks/useExpenseParticipants'
 import { mergePeople, buildPersonIndex, attachPersonIds } from '../lib/mergePeople'
 import { suggestNextPayer } from '../lib/expenseEngine'
 import Avatar from './Avatar'
@@ -33,17 +34,46 @@ export default function NextPayerCard({ className = '' }) {
   const { players: cricketPlayers } = useCricketPlayers()
   const { links } = usePlayerLinks()
   const { expenses } = useSharedExpenses()
+  const { isInRotation, loading: rotationLoading } = useExpenseParticipants()
 
   const people = useMemo(
     () => mergePeople(shuttlePlayers, cricketPlayers, links),
     [shuttlePlayers, cricketPlayers, links],
   )
+  // Same split ExpensesShared makes, and for the same reason: expenses
+  // resolve against the FULL list (someone opted out today may well have
+  // paid last month, and their name still has to resolve on those rows),
+  // but only the rotation pool can be suggested. Without this the card
+  // would name someone sitting under "Not counted" on /expenses — the exact
+  // dashboard-vs-Expenses disagreement this component was lifted to end,
+  // reintroduced when the opt-out feature landed after it.
+  const rotationPeople = useMemo(() => people.filter(isInRotation), [people, isInRotation])
   const resolvedExpenses = useMemo(
     () => attachPersonIds(expenses, buildPersonIndex(people)),
     [expenses, people],
   )
-  const suggestion = useMemo(() => suggestNextPayer(resolvedExpenses, people), [resolvedExpenses, people])
-  const person = suggestion ? people.find((p) => p.id === suggestion.personId) : null
+  // No `exclude` here, unlike ExpensesShared: that option carries the
+  // "absent tonight" checkboxes, which are one page's local UI state and
+  // mean nothing on a dashboard.
+  //
+  // Held back until the opt-out snapshot lands. `isInRotation` answers true
+  // for everyone while the collection is still loading, so suggesting on the
+  // first paint would flash an opted-out name and then swap it — worse than
+  // a beat of nothing, since the whole point of this card is that the name
+  // it shows is the one you act on.
+  const suggestion = useMemo(
+    () => (rotationLoading ? null : suggestNextPayer(resolvedExpenses, rotationPeople)),
+    [rotationLoading, resolvedExpenses, rotationPeople],
+  )
+  const person = suggestion ? rotationPeople.find((p) => p.id === suggestion.personId) : null
+
+  // "Nothing logged yet" is the no-expenses case and would be a lie when the
+  // real reason is that every single person has been left out of the pool.
+  const emptyReason = rotationLoading
+    ? '—'
+    : rotationPeople.length === 0
+      ? 'No one is counted in yet'
+      : 'Pick anyone — nothing logged yet'
 
   return (
     <Link
@@ -65,7 +95,7 @@ export default function NextPayerCard({ className = '' }) {
           </div>
         ) : (
           <span className="text-sm font-medium text-green-900 dark:text-green-200">
-            Pick anyone — nothing logged yet
+            {emptyReason}
           </span>
         )}
       </div>
