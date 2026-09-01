@@ -367,6 +367,30 @@ export function nemesis(stat) {
   return { opponentId, ...v, lossRate: 1 - v.wins / v.matches }
 }
 
+/**
+ * Every partnership on record for one player as a flat list, so the player
+ * modal can show the full "played with" breakdown rather than only the single
+ * best/toughest pairing bestPartner and worstPartner pick out.
+ *
+ * Unlike those two this applies no match floor and no standout guard - the
+ * point here is the raw record, one row per person, and a 1-0 is honest as
+ * long as it's labelled as a 1-0 (the UI tags low samples). Best win rate
+ * first, so the list reads as a ranking; ties break on matches played, which
+ * puts the better-evidenced record above a lucky one-off at the same rate.
+ */
+export function partnerRecords(stat) {
+  return Object.entries(stat?.partnerStats || {})
+    .map(([id, v]) => ({ id, matches: v.matches, wins: v.wins, losses: v.matches - v.wins, winRate: v.wins / v.matches }))
+    .sort((a, b) => b.winRate - a.winRate || b.matches - a.matches)
+}
+
+/** The same flat breakdown for opponents faced - the "played against" side. */
+export function opponentRecords(stat) {
+  return Object.entries(stat?.opponentStats || {})
+    .map(([id, v]) => ({ id, matches: v.matches, wins: v.wins, losses: v.matches - v.wins, winRate: v.wins / v.matches }))
+    .sort((a, b) => b.winRate - a.winRate || b.matches - a.matches)
+}
+
 /** Partnership win-rate matrix for the heatmap, keyed [playerId][partnerId]. */
 export function partnershipHeatmap(statsById, playerIds) {
   const matrix = {}

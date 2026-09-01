@@ -19,6 +19,8 @@ import {
   substituteInSchedule,
   swapSlots,
   swapCourtPlanSlots,
+  moveSlot,
+  moveCourtPlanSlot,
   guestIdsIn,
   pendingSlots,
   replacePendingMatches,
@@ -251,6 +253,25 @@ export function useSession(sessionId) {
   )
 
   /**
+   * Reorder the rounds still to come, dragging one round to another position
+   * and sliding the ones in between along - see moveSlot for why that isn't
+   * the same operation as swapRounds. Only ever called with unscored rounds.
+   */
+  const moveRound = useCallback(
+    async (fromSlot, toSlot) => {
+      const current = session?.schedule || []
+      const schedule = moveSlot(current, fromSlot, toSlot)
+      if (schedule === current) return false
+      const data = { schedule }
+      const plan = moveCourtPlanSlot(session?.courtsBySlot, fromSlot, toSlot)
+      if (plan !== session?.courtsBySlot) data.courtsBySlot = plan
+      await updateSession(data)
+      return true
+    },
+    [session, updateSession],
+  )
+
+  /**
    * Work a late arrival into a session that's already running: they join the
    * roster and every round that hasn't started yet is redrawn around the
    * bigger group. Rounds already played, part-played, or scored are left
@@ -337,6 +358,7 @@ export function useSession(sessionId) {
     undoLastScore,
     substitutePlayer,
     swapRounds,
+    moveRound,
     addPlayerAndRedraw,
     recordDecider,
     clearDecider,

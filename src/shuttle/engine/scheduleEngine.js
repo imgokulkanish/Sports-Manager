@@ -275,6 +275,54 @@ export function swapCourtPlanSlots(courtsBySlot, slotA, slotB) {
 }
 
 /**
+ * Move one round to a different position in the running order, sliding every
+ * round between the two along by one - the reorder a drag-and-drop makes.
+ *
+ * swapSlots can't express this: dragging round 6 up to round 3 should leave
+ * 3, 4 and 5 in their own order one place later, whereas swapping 6 and 3
+ * would drop round 3 all the way down to sixth. Both are useful (the "play a
+ * later round now" button is genuinely a trade), so this sits alongside it.
+ *
+ * Like swapSlots it only rewrites `slot` numbers, never array positions, so
+ * every recorded score stays attached to the match it belongs to. Callers can
+ * use the returned reference to tell a no-op from a real edit.
+ */
+export function moveSlot(schedule = [], fromSlot, toSlot) {
+  if (fromSlot === toSlot) return schedule
+  const order = groupBySlot(schedule).map((s) => s.slot)
+  const from = order.indexOf(fromSlot)
+  const to = order.indexOf(toSlot)
+  if (from < 0 || to < 0) return schedule
+
+  const reordered = [...order]
+  reordered.splice(to, 0, reordered.splice(from, 1)[0])
+  // reordered[i] is the slot whose matches now play i-th, so it takes over the
+  // slot number that sat in that position before - which keeps the numbers
+  // themselves contiguous however many times the order is shuffled.
+  const remap = new Map(reordered.map((slot, i) => [slot, order[i]]))
+
+  return schedule.map((match, i) => {
+    const slot = match.slot ?? i
+    const next = remap.has(slot) ? remap.get(slot) : slot
+    return match.slot === next ? match : { ...match, slot: next }
+  })
+}
+
+/**
+ * The same move applied to a session's stored courts-per-slot plan, which is
+ * indexed by slot number and so has to travel with it - otherwise a round
+ * moved past a two-court round would come up planned for the wrong number of
+ * courts.
+ */
+export function moveCourtPlanSlot(courtsBySlot, fromSlot, toSlot) {
+  if (!Array.isArray(courtsBySlot) || fromSlot === toSlot) return courtsBySlot
+  if (Math.max(fromSlot, toSlot) >= courtsBySlot.length) return courtsBySlot
+  const next = [...courtsBySlot]
+  next.splice(toSlot, 0, next.splice(fromSlot, 1)[0])
+  return next
+}
+
+/**
  * Which slots can still be rewritten: everything after the last slot holding
  * any result at all. A slot with a result in it is left alone even if its
  * other court is still playing — rewriting half a slot would strand a

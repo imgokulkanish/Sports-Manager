@@ -7,6 +7,7 @@ import { groupBySlot, pendingSlots } from '../engine/scheduleEngine'
 import { sessionLeaderboard, deciderCandidates, tiedAtTopCount, formatDiff } from '../engine/statsEngine'
 import { useAdmin } from '../../shell/components/Admin'
 import RoundCard from '../components/RoundCard'
+import UpNextList from '../components/UpNextList'
 import Leaderboard from '../components/Leaderboard'
 import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
@@ -26,6 +27,7 @@ export default function LiveSession() {
     undoLastScore,
     substitutePlayer,
     swapRounds,
+    moveRound,
     addPlayerAndRedraw,
     recordDecider,
     clearDecider,
@@ -43,6 +45,7 @@ export default function LiveSession() {
   const [addingPlayer, setAddingPlayer] = useState(false)
   const [playingDecider, setPlayingDecider] = useState(false)
   const [deciderBusy, setDeciderBusy] = useState(false)
+  const [movingRound, setMovingRound] = useState(false)
 
   const playersById = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players])
 
@@ -74,8 +77,11 @@ export default function LiveSession() {
     return scored.length ? Math.max(...scored) : -1
   }, [scores])
 
+  // The next five rounds, so the group can see far enough ahead to know who is
+  // sitting out soon and reorder around it - the list is draggable, and three
+  // rows is too small a window to be worth rearranging.
   const upcomingSlots = useMemo(
-    () => slots.slice(currentSlotIndex + 1, currentSlotIndex + 4),
+    () => slots.slice(currentSlotIndex + 1, currentSlotIndex + 6),
     [slots, currentSlotIndex],
   )
 
@@ -218,6 +224,23 @@ export default function LiveSession() {
       return true
     } finally {
       setAdjustBusy(false)
+    }
+  }
+
+  // Drag-to-reorder from the "Up next" list. Every round in it is unscored -
+  // it starts after the one on court - so there is no result to strand.
+  // Locked while the write is in flight: the list is drawn from `session`, so
+  // a second drag before the new order comes back would be computed against
+  // the old one.
+  const handleMoveRound = async (fromSlot, toSlot) => {
+    if (movingRound) return
+    setMovingRound(true)
+    try {
+      await moveRound(fromSlot, toSlot)
+    } catch {
+      showToast('Saved locally — will sync when back online', 'info')
+    } finally {
+      setMovingRound(false)
     }
   }
 
@@ -364,33 +387,20 @@ export default function LiveSession() {
 
             {upcomingSlots.length > 0 && (
               <div>
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Up next</p>
-                <div className="flex flex-col gap-2">
-                  {upcomingSlots.map(({ slot, matches }, offset) => (
-                    <div
-                      key={slot}
-                      className="flex items-start gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2 text-sm"
-                    >
-                      <span className="text-xs font-medium text-gray-400 dark:text-gray-500 w-6 text-center shrink-0 mt-0.5">
-                        {currentSlotIndex + 2 + offset}
-                      </span>
-                      <div className="flex-1 min-w-0 flex flex-col gap-1">
-                        {matches.map(({ index, match, court }) => (
-                          <span key={index} className="text-gray-900 dark:text-gray-100 truncate">
-                            {isMultiCourt && (
-                              <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 mr-1.5">
-                                C{court}
-                              </span>
-                            )}
-                            {match.team1.map((pid) => playersById[pid]?.name || pid).join(' & ')}
-                            <span className="text-gray-400 dark:text-gray-500 mx-1.5">vs</span>
-                            {match.team2.map((pid) => playersById[pid]?.name || pid).join(' & ')}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex items-baseline justify-between mb-2">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Up next</p>
+                  {upcomingSlots.length > 1 && (
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500">Drag to reorder</p>
+                  )}
                 </div>
+                <UpNextList
+                  rows={upcomingSlots}
+                  startNumber={currentSlotIndex + 2}
+                  isMultiCourt={isMultiCourt}
+                  playersById={playersById}
+                  onMove={handleMoveRound}
+                  disabled={movingRound}
+                />
               </div>
             )}
 

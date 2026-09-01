@@ -1,14 +1,32 @@
 // components/PlayerDetailModal.jsx
 import React, { useMemo, useState } from 'react'
-import { bestPartner, worstPartner, nemesis, matchRecord, avgPoints, recentForm, attendanceRate } from '../engine/statsEngine'
+import {
+  bestPartner,
+  worstPartner,
+  nemesis,
+  matchRecord,
+  avgPoints,
+  recentForm,
+  attendanceRate,
+  partnerRecords,
+  opponentRecords,
+} from '../engine/statsEngine'
 import ConfirmDialog from './ConfirmDialog'
 import SampleTag from './SampleTag'
+import Avatar from './Avatar'
 
 const TAB_BTN = (active) =>
   `flex-1 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
     active
       ? 'bg-brand text-white border-brand'
       : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+  }`
+
+const SIDE_BTN = (active) =>
+  `flex-1 text-[11px] font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+    active
+      ? 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100'
+      : 'border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50'
   }`
 
 const STAT_TILE = 'bg-gray-50 dark:bg-gray-800 rounded-lg p-3'
@@ -20,6 +38,95 @@ function StatTile({ label, value, sub, className = '' }) {
       <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{value}</p>
       {sub && <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</p>}
     </div>
+  )
+}
+
+// A record is only worth colouring once it leans one way: 60/40 either side
+// of even, so a 5-4 stays neutral instead of being painted as a strength.
+function recordTone(winRate) {
+  if (winRate >= 0.6) return 'text-green-700 dark:text-green-400'
+  if (winRate <= 0.4) return 'text-red-700 dark:text-red-400'
+  return 'text-gray-900 dark:text-gray-100'
+}
+
+function barTone(winRate) {
+  if (winRate >= 0.6) return 'bg-green-500 dark:bg-green-400'
+  if (winRate <= 0.4) return 'bg-red-400 dark:bg-red-500'
+  return 'bg-gray-300 dark:bg-gray-600'
+}
+
+function MatchupRow({ rec, playersById }) {
+  // A partner or opponent who has since been deleted leaves their id behind in
+  // the stats of everyone who played with them, so name the id rather than
+  // rendering a blank row.
+  const name = playersById[rec.id]?.name || 'Former player'
+  const pct = Math.round(rec.winRate * 100)
+  return (
+    <div className="flex items-center gap-2.5 py-2 border-b border-gray-100 dark:border-gray-800 last:border-b-0">
+      <Avatar id={rec.id} name={name} size="sm" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-gray-900 dark:text-gray-100 truncate flex items-center gap-1.5">
+          {name}
+          <SampleTag matches={rec.matches} />
+        </p>
+        <div className="mt-1 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+          <div className={`h-full rounded-full ${barTone(rec.winRate)}`} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+      <div className="text-right shrink-0">
+        <p className={`text-sm font-semibold ${recordTone(rec.winRate)}`}>{pct}%</p>
+        <p className="text-[10px] text-gray-400 dark:text-gray-500">
+          {rec.wins}W - {rec.losses}L
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The full head-to-head breakdown: every partner played with and every
+ * opponent faced, with the win/loss record against each. The Overview tab
+ * names only the single standout in each direction (best partner, nemesis);
+ * this is the same data unfiltered, for "how do I actually do against X".
+ *
+ * Quick-play matches have one-player teams, so they contribute opponents but
+ * no partners - a player who only ever plays quick matches will see an empty
+ * "Played with" list, which is correct rather than missing data.
+ */
+function MatchupsTab({ partners, opponents, playersById }) {
+  const [side, setSide] = useState('with')
+  const rows = side === 'with' ? partners : opponents
+  const totals = rows.reduce((acc, r) => ({ wins: acc.wins + r.wins, losses: acc.losses + r.losses }), { wins: 0, losses: 0 })
+
+  return (
+    <>
+      <div className="flex gap-2 mb-3">
+        <button onClick={() => setSide('with')} className={SIDE_BTN(side === 'with')}>
+          Played with
+        </button>
+        <button onClick={() => setSide('against')} className={SIDE_BTN(side === 'against')}>
+          Played against
+        </button>
+      </div>
+
+      {rows.length > 0 && (
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-1">
+          {rows.length} {rows.length === 1 ? 'player' : 'players'} - {totals.wins}W - {totals.losses}L{' '}
+          {side === 'with' ? 'alongside them' : 'against them'} - best record first
+        </p>
+      )}
+
+      <div className="flex flex-col">
+        {rows.map((rec) => (
+          <MatchupRow key={rec.id} rec={rec} playersById={playersById} />
+        ))}
+        {rows.length === 0 && (
+          <p className="text-xs text-gray-400 dark:text-gray-500 py-2">
+            {side === 'with' ? 'No partners on record yet.' : 'No opponents on record yet.'}
+          </p>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -205,6 +312,8 @@ export default function PlayerDetailModal({ player, stat, playersById, sessions,
   const points = useMemo(() => avgPoints(stat), [stat])
   const form = useMemo(() => recentForm(stat, 5), [stat])
   const attendance = useMemo(() => (player && sessions ? attendanceRate(player, sessions) : null), [player, sessions])
+  const partners = useMemo(() => partnerRecords(stat), [stat])
+  const opponents = useMemo(() => opponentRecords(stat), [stat])
 
   if (!player) return null
 
@@ -225,13 +334,18 @@ export default function PlayerDetailModal({ player, stat, playersById, sessions,
           <button onClick={() => setTab('detailed')} className={TAB_BTN(tab === 'detailed')}>
             Detailed
           </button>
+          <button onClick={() => setTab('matchups')} className={TAB_BTN(tab === 'matchups')}>
+            Matchups
+          </button>
         </div>
 
-        {tab === 'overview' ? (
+        {tab === 'overview' && (
           <OverviewTab player={player} stat={stat} best={best} worstPair={worstPair} worst={worst} winRate={winRatePct} playersById={playersById} />
-        ) : (
+        )}
+        {tab === 'detailed' && (
           <DetailedTab stat={stat} record={record} points={points} form={form} attendance={attendance} achievements={achievements} />
         )}
+        {tab === 'matchups' && <MatchupsTab partners={partners} opponents={opponents} playersById={playersById} />}
 
         <div className="flex gap-2 mt-5">
           <button
