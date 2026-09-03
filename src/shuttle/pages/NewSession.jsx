@@ -28,6 +28,16 @@ import { BTN_SOLID, BTN_OUTLINE } from '../styles'
 const INPUT = 'w-full mt-1 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800/60 disabled:text-gray-400 dark:disabled:text-gray-600 disabled:cursor-not-allowed'
 const LABEL = 'text-xs text-gray-500 dark:text-gray-400'
 
+// Pairing rules that can't sensibly coexist for the same two people, keyed by
+// the rule being added. "Must partner" and "only once" are deliberately absent
+// from each other's lists: together they mean "exactly once", which is the
+// most common way the ceiling gets used.
+const RULE_CONFLICTS = {
+  mustPartner: ['partner'],
+  partner: ['mustPartner', 'onceOnly'],
+  onceOnly: ['partner'],
+}
+
 export default function NewSession() {
   const { players, loading } = usePlayers()
   const { createSession } = useSessions()
@@ -170,10 +180,10 @@ export default function NewSession() {
   const addAvoidPair = () => {
     if (!avoidA || !avoidB || avoidA === avoidB) return
     const samePeople = (r) => (r.a === avoidA && r.b === avoidB) || (r.a === avoidB && r.b === avoidA)
-    // "must partner" and "never partners" for the same two can't both hold -
-    // the engine would just report the required pair as unmet every time.
-    const opposite = avoidType === 'mustPartner' ? 'partner' : avoidType === 'partner' ? 'mustPartner' : null
-    if (opposite && avoidPairs.some((r) => r.type === opposite && samePeople(r))) {
+    // e.g. "must partner" and "never partners" for the same two can't both
+    // hold - the engine would just report the required pair as unmet every time.
+    const clashes = RULE_CONFLICTS[avoidType] || []
+    if (avoidPairs.some((r) => clashes.includes(r.type) && samePeople(r))) {
       showToast('That contradicts a rule you already added for those two', 'error')
       return
     }
@@ -189,13 +199,21 @@ export default function NewSession() {
     setAvoidPairs((prev) => prev.filter((_, i) => i !== index))
   }
 
-  // avoidPairs holds all three rule types. Only the two "never" rules are
-  // player constraints; "must partner" is a session goal the engine chases,
-  // so it must NOT reach applySessionOverrides - anything not typed
-  // 'opponent' there lands in forbiddenPartners, which would invert it.
-  const forbidPairs = useMemo(() => avoidPairs.filter((r) => r.type !== 'mustPartner'), [avoidPairs])
+  // avoidPairs holds every rule type. Only the two "never" rules are player
+  // constraints; "must partner" is a session goal the engine chases and "only
+  // once" is a ceiling it enforces, so neither may reach applySessionOverrides
+  // - anything not typed 'opponent' there lands in forbiddenPartners, which
+  // would invert them.
+  const forbidPairs = useMemo(
+    () => avoidPairs.filter((r) => r.type === 'partner' || r.type === 'opponent'),
+    [avoidPairs],
+  )
   const requiredPairs = useMemo(
     () => avoidPairs.filter((r) => r.type === 'mustPartner').map(({ a, b }) => ({ a, b })),
+    [avoidPairs],
+  )
+  const partnerLimits = useMemo(
+    () => avoidPairs.filter((r) => r.type === 'onceOnly').map(({ a, b }) => ({ a, b, max: 1 })),
     [avoidPairs],
   )
 
@@ -222,6 +240,7 @@ export default function NewSession() {
         warmupRestIds: warmupRest,
         matchCaps,
         requiredPairs,
+        partnerLimits,
       })
       setGenerating(false)
       if (!res) {
@@ -246,6 +265,7 @@ export default function NewSession() {
         warmupRestIds: warmupRest,
         matchCaps,
         requiredPairs,
+        partnerLimits,
       })
       setGenerating(false)
       if (!res) {
@@ -660,6 +680,7 @@ export default function NewSession() {
                     <option value="partner">never partners</option>
                     <option value="opponent">never opponents</option>
                     <option value="mustPartner">must partner</option>
+                    <option value="onceOnly">partners only once</option>
                   </select>
                   <select
                     value={avoidB}
@@ -683,28 +704,36 @@ export default function NewSession() {
                 </div>
                 <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
                   "Must partner" guarantees them at least one match as a pair — they still play with and against
-                  everyone else the rest of the session.
+                  everyone else the rest of the session. "Partners only once" is the opposite ceiling: they team up
+                  at most one time, however often everyone else repeats. Add both for exactly once.
                 </p>
                 {avoidPairs.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {avoidPairs.map((pair, i) => {
                       const must = pair.type === 'mustPartner'
+                      const once = pair.type === 'onceOnly'
+                      const tone = must
+                        ? 'border-brand-border dark:border-brand/40 bg-brand-light dark:bg-brand/15 text-green-800 dark:text-emerald-300'
+                        : once
+                          ? 'border-sky-300 dark:border-sky-500/40 bg-sky-50 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300'
+                          : 'border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                      const removeTone = must
+                        ? 'text-brand hover:text-green-900 dark:hover:text-emerald-200'
+                        : once
+                          ? 'text-sky-500 hover:text-sky-800 dark:hover:text-sky-200'
+                          : 'text-amber-500 hover:text-amber-800 dark:hover:text-amber-200'
                       return (
                         <span
                           key={i}
-                          className={`text-xs px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
-                            must
-                              ? 'border-brand-border dark:border-brand/40 bg-brand-light dark:bg-brand/15 text-green-800 dark:text-emerald-300'
-                              : 'border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                          }`}
+                          className={`text-xs px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${tone}`}
                         >
-                          <span className="opacity-60">{must ? 'must pair' : 'never'}</span>
+                          <span className="opacity-60">{must ? 'must pair' : once ? 'once only' : 'never'}</span>
                           {playersById[pair.a]?.name} {pair.type === 'opponent' ? 'vs' : '&'}{' '}
                           {playersById[pair.b]?.name}
                           <button
                             onClick={() => removeAvoidPair(i)}
                             aria-label="Remove rule"
-                            className={must ? 'text-brand hover:text-green-900 dark:hover:text-emerald-200' : 'text-amber-500 hover:text-amber-800 dark:hover:text-amber-200'}
+                            className={removeTone}
                           >
                             ×
                           </button>

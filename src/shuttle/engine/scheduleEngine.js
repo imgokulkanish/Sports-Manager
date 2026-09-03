@@ -61,6 +61,15 @@
 //    sit in the first ~70% of the session so there's always slack left to
 //    satisfy one that the schedule didn't produce on its own.
 //
+// 7. partnerLimits ([{ a, b, max }]) is the mirror image of requiredPairs:
+//    a CEILING on how often two people partner (max 1 = "these two play
+//    together once, not twice"). Unlike the required-pair bounty it's a hard
+//    rule, enforced the same way forbiddenPartners is - a split that would
+//    put the pair together past their allowance is simply not legal - except
+//    that it only bites once the allowance is used up, so the pair is free to
+//    happen naturally the first time. Pairing it with a "must partner" rule
+//    for the same two gives "exactly once".
+//
 // 5. matchCaps ({ playerId: maxMatches }) is a personal ceiling for someone
 //    easing back from injury. It's a MAXIMUM, not a target: the court time is
 //    already booked, so the matches they give up are handed to everyone else
@@ -407,8 +416,16 @@ function teamSplits(four) {
   ]
 }
 
-function violatesForbidden(team1, team2, playersById) {
+// `partnerLimits` is a Map of pairKey -> how many times those two may partner
+// this session; a pair already at its allowance is as illegal as a forbidden
+// one. It needs `state` because the answer depends on what's been played so far.
+function violatesForbidden(team1, team2, playersById, partnerLimits = null, state = null) {
   const check = (ids) => {
+    if (partnerLimits && state) {
+      const key = pairKey(ids[0], ids[1])
+      const max = partnerLimits.get(key)
+      if (max != null && (state.partnerCount[key] || 0) >= max) return true
+    }
     const [p1, p2] = ids.map((id) => playersById[id])
     if (!p1 || !p2) return false
     const c1 = p1.constraints || {}
@@ -482,11 +499,11 @@ function scoreSplit({ team1, team2 }, state, slotIndex, playersById, duePairs = 
 
 // Best legal team split for one foursome, or null if all 3 splits are blocked
 // by a forbidden-partner/opponent constraint.
-function bestSplitFor(four, state, slotIndex, playersById, rng, duePairs = null) {
+function bestSplitFor(four, state, slotIndex, playersById, rng, duePairs = null, partnerLimits = null) {
   let best = null
   let bestScore = Infinity
   for (const split of shuffle(teamSplits(four), rng)) {
-    if (violatesForbidden(split.team1, split.team2, playersById)) continue
+    if (violatesForbidden(split.team1, split.team2, playersById, partnerLimits, state)) continue
     const s = scoreSplit(split, state, slotIndex, playersById, duePairs)
     if (s < bestScore) {
       bestScore = s
@@ -520,10 +537,20 @@ function twoCourtPartitions(eight) {
  * the original single-foursome path including its swap-out fallback; three or
  * more fall back to greedy chunking in priority order.
  */
-function assignCourts(activeIds, courts, eligiblePool, state, slotIndex, playersById, rng, duePairs = null) {
+function assignCourts(
+  activeIds,
+  courts,
+  eligiblePool,
+  state,
+  slotIndex,
+  playersById,
+  rng,
+  duePairs = null,
+  partnerLimits = null,
+) {
   if (courts === 1) {
     const four = activeIds.slice(0, 4)
-    const direct = bestSplitFor(four, state, slotIndex, playersById, rng, duePairs)
+    const direct = bestSplitFor(four, state, slotIndex, playersById, rng, duePairs, partnerLimits)
     if (direct) return [direct.split]
     // All 3 splits violate a forbidden constraint for this exact foursome.
     // Try swapping one player out for another eligible player once.
@@ -531,7 +558,7 @@ function assignCourts(activeIds, courts, eligiblePool, state, slotIndex, players
       const alternatives = eligiblePool.filter((id) => !four.includes(id))
       for (const alt of shuffle(alternatives, rng)) {
         const candidate = four.map((id) => (id === swapOut ? alt : id))
-        const found = bestSplitFor(candidate, state, slotIndex, playersById, rng, duePairs)
+        const found = bestSplitFor(candidate, state, slotIndex, playersById, rng, duePairs, partnerLimits)
         if (found) return [found.split]
       }
     }
@@ -542,9 +569,9 @@ function assignCourts(activeIds, courts, eligiblePool, state, slotIndex, players
     let best = null
     let bestScore = Infinity
     for (const [courtA, courtB] of twoCourtPartitions(activeIds)) {
-      const a = bestSplitFor(courtA, state, slotIndex, playersById, rng, duePairs)
+      const a = bestSplitFor(courtA, state, slotIndex, playersById, rng, duePairs, partnerLimits)
       if (!a) continue
-      const b = bestSplitFor(courtB, state, slotIndex, playersById, rng, duePairs)
+      const b = bestSplitFor(courtB, state, slotIndex, playersById, rng, duePairs, partnerLimits)
       if (!b) continue
       const total = a.score + b.score
       if (total < bestScore) {
@@ -559,7 +586,15 @@ function assignCourts(activeIds, courts, eligiblePool, state, slotIndex, players
   // three courts for this group today and the fairness targets still hold.
   const matches = []
   for (let c = 0; c < courts; c++) {
-    const found = bestSplitFor(activeIds.slice(c * 4, c * 4 + 4), state, slotIndex, playersById, rng, duePairs)
+    const found = bestSplitFor(
+      activeIds.slice(c * 4, c * 4 + 4),
+      state,
+      slotIndex,
+      playersById,
+      rng,
+      duePairs,
+      partnerLimits,
+    )
     if (!found) return null
     matches.push(found.split)
   }
@@ -632,7 +667,15 @@ function assignTargets(ids, totalPlayerSlots, totalSlots, matchCaps, rng) {
   return { targets, shortfall: Math.max(0, remaining) }
 }
 
-function attemptSchedule(players, courtsBySlot, seed, warmupRestIds = [], matchCaps = {}, requiredPairs = []) {
+function attemptSchedule(
+  players,
+  courtsBySlot,
+  seed,
+  warmupRestIds = [],
+  matchCaps = {},
+  requiredPairs = [],
+  partnerLimits = null,
+) {
   const rng = mulberry32(seed)
   const playersById = Object.fromEntries(players.map((p) => [p.id, p]))
   const ids = players.map((p) => p.id)
@@ -785,7 +828,17 @@ function attemptSchedule(players, courtsBySlot, seed, warmupRestIds = [], matchC
     )
     if (!activeIds) return null
 
-    const matches = assignCourts(activeIds, courts, eligiblePool, state, slot, playersById, rng, duePairs)
+    const matches = assignCourts(
+      activeIds,
+      courts,
+      eligiblePool,
+      state,
+      slot,
+      playersById,
+      rng,
+      duePairs,
+      partnerLimits,
+    )
     if (!matches) return null // give up on this seed
 
     // Commit state updates for the whole slot. Streaks tick per slot, not per
@@ -910,6 +963,8 @@ function attemptSchedule(players, courtsBySlot, seed, warmupRestIds = [], matchC
  *                             matchesPerPlayer, warmupRestIds, matchCaps }
  *   `matchCaps` is { playerId: maxMatches } - a personal ceiling, see note 5.
  *   `requiredPairs` is [{ a, b }] - partner at least once, see note 6.
+ *   `partnerLimits` is [{ a, b, max }] - partner at most `max` times (default
+ *   1), see note 7.
  *   `courtsBySlot` wins when present; otherwise a single-court plan is built
  *   from totalRounds / matchesPerPlayer exactly as before.
  * @returns {{ schedule, warnings, stats, courtsBySlot, totalRounds, totalSlots,
@@ -954,13 +1009,31 @@ export function generateSchedule(playerList, sessionConstraints = {}, options = 
   const requiredPairs = (options.requiredPairs || []).filter(
     ({ a, b }) => a !== b && playing.has(a) && playing.has(b),
   )
+  // pairKey -> max partnerships allowed. Same "drop rules naming someone who
+  // isn't playing" filter; a pair named twice keeps the tightest limit.
+  const partnerLimits = new Map()
+  for (const { a, b, max } of options.partnerLimits || []) {
+    if (a === b || !playing.has(a) || !playing.has(b)) continue
+    const limit = Math.max(0, max == null ? 1 : max)
+    const key = pairKey(a, b)
+    const existing = partnerLimits.get(key)
+    partnerLimits.set(key, existing == null ? limit : Math.min(existing, limit))
+  }
 
   let best = null
   let bestSeed = null
   for (let i = 0; i < maxAttempts; i++) {
     if (best && Date.now() > deadline) break
     const seed = baseSeed + i * 7919 // step by a prime to decorrelate seeds
-    const result = attemptSchedule(playerList, courtsBySlot, seed, warmupRestIds, matchCaps, requiredPairs)
+    const result = attemptSchedule(
+      playerList,
+      courtsBySlot,
+      seed,
+      warmupRestIds,
+      matchCaps,
+      requiredPairs,
+      partnerLimits,
+    )
     if (!result) continue
     if (!best || result.fitness > best.fitness) {
       best = result
