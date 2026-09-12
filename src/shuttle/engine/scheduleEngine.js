@@ -667,6 +667,39 @@ function assignTargets(ids, totalPlayerSlots, totalSlots, matchCaps, rng) {
   return { targets, shortfall: Math.max(0, remaining) }
 }
 
+function priorScheduleState(ids, priorSchedule = []) {
+  const known = new Set(ids)
+  const matchesPlayed = Object.fromEntries(ids.map((id) => [id, 0]))
+  const partnerCount = {}
+  const opponentCount = {}
+  const recentMatchSignatures = new Set()
+  const ordered = priorSchedule
+    .map((match, index) => ({ match, slot: match.slot ?? index }))
+    .sort((a, b) => a.slot - b.slot)
+
+  for (const { match } of ordered) {
+    const players = [...(match.team1 || []), ...(match.team2 || [])]
+    players.filter((id) => known.has(id)).forEach((id) => {
+      matchesPlayed[id] += 1
+    })
+    if (match.team1?.length !== 2 || match.team2?.length !== 2) continue
+    const partnerKey1 = pairKey(match.team1[0], match.team1[1])
+    const partnerKey2 = pairKey(match.team2[0], match.team2[1])
+    partnerCount[partnerKey1] = (partnerCount[partnerKey1] || 0) + 1
+    partnerCount[partnerKey2] = (partnerCount[partnerKey2] || 0) + 1
+    for (const first of match.team1) {
+      for (const second of match.team2) {
+        const key = pairKey(first, second)
+        opponentCount[key] = (opponentCount[key] || 0) + 1
+      }
+    }
+    recentMatchSignatures.add(`${partnerKey1}::${partnerKey2}`)
+    while (recentMatchSignatures.size > 5) recentMatchSignatures.delete(recentMatchSignatures.values().next().value)
+  }
+
+  return { matchesPlayed, partnerCount, opponentCount, recentMatchSignatures }
+}
+
 function attemptSchedule(
   players,
   courtsBySlot,
@@ -675,6 +708,7 @@ function attemptSchedule(
   matchCaps = {},
   requiredPairs = [],
   partnerLimits = null,
+  priorSchedule = [],
 ) {
   const rng = mulberry32(seed)
   const playersById = Object.fromEntries(players.map((p) => [p.id, p]))
@@ -682,7 +716,9 @@ function attemptSchedule(
   const n = ids.length
   const totalSlots = courtsBySlot.length
   const totalMatches = courtsBySlot.reduce((sum, c) => sum + c, 0)
-  const { targets: targetByPlayer, shortfall } = assignTargets(ids, 4 * totalMatches, totalSlots, matchCaps, rng)
+  const historical = priorScheduleState(ids, priorSchedule)
+  const { targets: addedTargets, shortfall } = assignTargets(ids, 4 * totalMatches, totalSlots, matchCaps, rng)
+  const targetByPlayer = Object.fromEntries(ids.map((id) => [id, historical.matchesPlayed[id] + addedTargets[id]]))
   // A player's own limit, kept separate from their target: the target is what
   // the schedule aims to give them, the cap is what it must not exceed even
   // when the court would otherwise go short.
@@ -690,15 +726,15 @@ function attemptSchedule(
   for (const id of ids) if (matchCaps[id] != null) hardCap[id] = Math.max(0, matchCaps[id])
 
   const state = {
-    matchesPlayed: Object.fromEntries(ids.map((id) => [id, 0])),
+    matchesPlayed: historical.matchesPlayed,
     activeStreak: Object.fromEntries(ids.map((id) => [id, 0])),
     restStreak: Object.fromEntries(ids.map((id) => [id, 0])),
     maxActiveStreak: Object.fromEntries(ids.map((id) => [id, 0])),
     earlyMatches: Object.fromEntries(ids.map((id) => [id, 0])),
-    partnerCount: {},
+    partnerCount: historical.partnerCount,
     partnerLastSlot: {},
-    opponentCount: {},
-    recentMatchSignatures: new Set(),
+    opponentCount: historical.opponentCount,
+    recentMatchSignatures: historical.recentMatchSignatures,
   }
 
   const schedule = []
@@ -1033,6 +1069,7 @@ export function generateSchedule(playerList, sessionConstraints = {}, options = 
       matchCaps,
       requiredPairs,
       partnerLimits,
+      options.priorSchedule || [],
     )
     if (!result) continue
     if (!best || result.fitness > best.fitness) {

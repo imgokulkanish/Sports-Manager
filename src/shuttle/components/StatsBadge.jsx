@@ -29,11 +29,11 @@ const METRIC_ACCENTS = {
   },
 }
 
-export function MetricCard({ label, value, sub, trend, tag, icon: Icon, accent = 'gray' }) {
+export function MetricCard({ label, value, sub, trend, tag, icon: Icon, accent = 'gray', className = '' }) {
   const a = METRIC_ACCENTS[accent] || METRIC_ACCENTS.gray
   return (
     <div
-      className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 border-l-4 ${a.border} rounded-lg p-3 transition-shadow hover:shadow-sm`}
+      className={`bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 border-l-4 ${a.border} rounded-lg p-3 transition-shadow hover:shadow-sm ${className}`}
     >
       <div className="flex items-center gap-1.5 mb-0.5">
         {Icon && (

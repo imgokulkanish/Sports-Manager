@@ -21,7 +21,7 @@ function CounterButton({ children, onClick, ariaLabel }) {
   )
 }
 
-function ScoreInput({ value, onChange, ariaLabel }) {
+function ScoreInput({ value, onChange, ariaLabel, maxScore }) {
   return (
     <input
       type="number"
@@ -31,7 +31,7 @@ function ScoreInput({ value, onChange, ariaLabel }) {
       onFocus={(e) => e.target.select()}
       onChange={(e) => {
         const n = parseInt(e.target.value, 10)
-        onChange(Number.isNaN(n) ? 0 : Math.max(0, Math.min(30, n)))
+        onChange(Number.isNaN(n) ? 0 : Math.max(0, Math.min(maxScore, n)))
       }}
       className="text-2xl font-bold text-gray-900 dark:text-gray-100 w-14 text-center tabular-nums bg-transparent border-b border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-brand dark:focus:border-emerald-400 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
     />
@@ -39,19 +39,21 @@ function ScoreInput({ value, onChange, ariaLabel }) {
 }
 
 /**
- * Whoever reaches 21 first wins outright. If both sides reach 21 (deuce),
- * play continues until either side is 2 points clear, capped at 30.
+ * Whoever reaches the target first wins outright. At deuce, play continues
+ * until either side is 2 points clear, capped nine points above the target.
  */
-export function hasWon(mine, theirs) {
-  return mine === 30 || (mine >= 21 && (theirs < 21 || mine - theirs >= 2))
+export function hasWon(mine, theirs, targetScore = 21) {
+  const cappedScore = targetScore + 9
+  return mine === cappedScore || (mine >= targetScore && (theirs < targetScore || mine - theirs >= 2))
 }
 
 /**
  * One side of a match: who's on it, their score, and the button that declares
  * them the winner. `side` only labels the controls for screen readers.
  */
-export function TeamScorePanel({ players, score, onScore, onWin, winLabel, canWin, disabled, side }) {
-  const bump = (delta) => onScore(Math.max(0, Math.min(30, score + delta)))
+export function TeamScorePanel({ players, score, onScore, onWin, winLabel, canWin, disabled, side, targetScore = 21 }) {
+  const maxScore = targetScore + 9
+  const bump = (delta) => onScore(Math.max(0, Math.min(maxScore, score + delta)))
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-3 text-center flex flex-col gap-2">
       <div className="text-sm font-medium text-gray-900 dark:text-gray-100 min-h-[2.5rem] flex flex-col justify-center gap-1">
@@ -66,7 +68,7 @@ export function TeamScorePanel({ players, score, onScore, onWin, winLabel, canWi
         <CounterButton ariaLabel={`${side} score minus`} onClick={() => bump(-1)}>
           −
         </CounterButton>
-        <ScoreInput ariaLabel={`${side} score`} value={score} onChange={onScore} />
+        <ScoreInput ariaLabel={`${side} score`} value={score} onChange={onScore} maxScore={maxScore} />
         <CounterButton ariaLabel={`${side} score plus`} onClick={() => bump(1)}>
           +
         </CounterButton>

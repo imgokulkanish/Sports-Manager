@@ -49,6 +49,7 @@ export default function NewSession() {
   const [courtCost, setCourtCost] = useState('')
   const [waterCost, setWaterCost] = useState('')
   const [umpire, setUmpire] = useState('')
+  const [winningScore, setWinningScore] = useState(21)
   const [selectedIds, setSelectedIds] = useState([])
   const [sittingOut, setSittingOut] = useState([])
   const [warmupRest, setWarmupRest] = useState([])
@@ -286,6 +287,7 @@ export default function NewSession() {
         courtCost: parseFloat(courtCost) || 0,
         waterCost: parseFloat(waterCost) || 0,
         umpire,
+        winningScore,
         playerIds: selectedIds,
         schedule: result.schedule,
         courtsBySlot: result.courtsBySlot,
@@ -350,6 +352,13 @@ export default function NewSession() {
                 placeholder="0"
                 className={INPUT}
               />
+            </div>
+            <div>
+              <label className={LABEL}>Play to</label>
+              <select value={winningScore} onChange={(e) => setWinningScore(Number(e.target.value))} className={INPUT}>
+                <option value={21}>21 points</option>
+                <option value={11}>11 points</option>
+              </select>
             </div>
           </div>
 

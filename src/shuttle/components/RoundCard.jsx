@@ -12,6 +12,7 @@ export default function RoundCard({
   restingPlayers,
   onWin,
   disabled,
+  targetScore = 21,
 }) {
   const [score1, setScore1] = useState(0)
   const [score2, setScore2] = useState(0)
@@ -19,8 +20,8 @@ export default function RoundCard({
 
   // Manual finish bypasses the 21/deuce rule so an umpire can close out a
   // match that was cut short (e.g. time ran out) on the score reached.
-  const team1Won = manualFinish ? score1 !== score2 : hasWon(score1, score2)
-  const team2Won = manualFinish ? score1 !== score2 : hasWon(score2, score1)
+  const team1Won = manualFinish ? score1 !== score2 : hasWon(score1, score2, targetScore)
+  const team2Won = manualFinish ? score1 !== score2 : hasWon(score2, score1, targetScore)
 
   return (
     <div className="flex flex-col gap-3">
@@ -45,6 +46,7 @@ export default function RoundCard({
           winLabel="Team 1 Won"
           canWin={team1Won}
           disabled={disabled}
+          targetScore={targetScore}
         />
         <span className="text-sm font-medium text-gray-400 dark:text-gray-500 mt-16">vs</span>
         <TeamScorePanel
@@ -56,6 +58,7 @@ export default function RoundCard({
           winLabel="Team 2 Won"
           canWin={team2Won}
           disabled={disabled}
+          targetScore={targetScore}
         />
       </div>
 

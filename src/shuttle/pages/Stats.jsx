@@ -7,6 +7,7 @@ import {
   headToHead,
   attendanceCounts,
   sessionWinCounts,
+  bestPartnership,
   isLowSample,
   MIN_RANKED_MATCHES,
 } from '../engine/statsEngine'
@@ -72,20 +73,7 @@ export default function Stats() {
     return rows2[0] || null
   }, [statsById])
 
-  const bestPartnership = useMemo(() => {
-    let best = null
-    for (const a of playerIds) {
-      for (const b of playerIds) {
-        if (a >= b) continue
-        const stat = statsById[a]?.partnerStats?.[b]
-        if (stat && stat.matches >= 2) {
-          const rate = stat.wins / stat.matches
-          if (!best || rate > best.rate) best = { a, b, rate, matches: stat.matches }
-        }
-      }
-    }
-    return best
-  }, [statsById, playerIds])
+  const topPartnership = useMemo(() => bestPartnership(statsById, playerIds), [statsById, playerIds])
 
   if (loading) {
     return (
@@ -133,8 +121,13 @@ export default function Stats() {
       </button>
 
       <div className={`${CARD} mb-4`}>
+        {/* Every figure on this page is computed from the sessions inside the
+            selected range, so each card names it. Two of them used to say
+            "all-time" regardless, which made them read as disagreeing with the
+            player modal (which really is all-time) rather than as a narrower
+            window of the same data. */}
         <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
-          All-time win rate (min {MIN_RANKED_MATCHES} matches)
+          Win rate, {rangeLabel.toLowerCase()} (min {MIN_RANKED_MATCHES} matches)
         </p>
         <div className="flex flex-col gap-1.5">
           {rankedRows.slice(0, 8).map((r) => (
@@ -159,15 +152,19 @@ export default function Stats() {
 
       <div className="grid md:grid-cols-2 gap-3 mb-4">
         <div className={CARD}>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Best partnership</p>
-          {bestPartnership ? (
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
+            Best partnership, {rangeLabel.toLowerCase()}
+          </p>
+          {topPartnership ? (
             <>
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
-                {playersById[bestPartnership.a]?.name} + {playersById[bestPartnership.b]?.name}
-                <SampleTag matches={bestPartnership.matches} />
+                {playersById[topPartnership.a]?.name} + {playersById[topPartnership.b]?.name}
+                <SampleTag matches={topPartnership.matches} />
               </p>
-              <p className="text-xs text-brand dark:text-emerald-400 mt-0.5">{Math.round(bestPartnership.rate * 100)}% wins together</p>
-              <p className="text-[10px] text-gray-400 dark:text-gray-500">{bestPartnership.matches} matches</p>
+              <p className="text-xs text-brand dark:text-emerald-400 mt-0.5">{Math.round(topPartnership.rate * 100)}% wins together</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                {topPartnership.wins}W - {topPartnership.matches - topPartnership.wins}L in {topPartnership.matches} matches
+              </p>
             </>
           ) : (
             <p className="text-xs text-gray-400 dark:text-gray-500">Not enough data yet.</p>
@@ -175,7 +172,9 @@ export default function Stats() {
         </div>
 
         <div className={CARD}>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Best win streak (all-time)</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
+            Best win streak, {rangeLabel.toLowerCase()}
+          </p>
           {bestStreak && bestStreak.bestWinStreak > 0 ? (
             <>
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{bestStreak.name}</p>

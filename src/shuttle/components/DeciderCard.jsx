@@ -11,13 +11,13 @@ import React, { useState } from 'react'
 import Avatar from './Avatar'
 import { TeamScorePanel, ManualFinishToggle, hasWon } from './ScorePad'
 
-export default function DeciderCard({ playerA, playerB, tiedOn, onWin, onCancel, disabled }) {
+export default function DeciderCard({ playerA, playerB, tiedOn, onWin, onCancel, disabled, targetScore = 21 }) {
   const [scoreA, setScoreA] = useState(0)
   const [scoreB, setScoreB] = useState(0)
   const [manualFinish, setManualFinish] = useState(false)
 
-  const aWon = manualFinish ? scoreA !== scoreB : hasWon(scoreA, scoreB)
-  const bWon = manualFinish ? scoreA !== scoreB : hasWon(scoreB, scoreA)
+  const aWon = manualFinish ? scoreA !== scoreB : hasWon(scoreA, scoreB, targetScore)
+  const bWon = manualFinish ? scoreA !== scoreB : hasWon(scoreB, scoreA, targetScore)
 
   return (
     <div className="flex flex-col gap-3">
@@ -39,6 +39,7 @@ export default function DeciderCard({ playerA, playerB, tiedOn, onWin, onCancel,
           winLabel={`${playerA.name} won`}
           canWin={aWon}
           disabled={disabled}
+          targetScore={targetScore}
         />
         <span className="text-sm font-medium text-gray-400 dark:text-gray-500 mt-16">vs</span>
         <TeamScorePanel
@@ -50,6 +51,7 @@ export default function DeciderCard({ playerA, playerB, tiedOn, onWin, onCancel,
           winLabel={`${playerB.name} won`}
           canWin={bWon}
           disabled={disabled}
+          targetScore={targetScore}
         />
       </div>
 

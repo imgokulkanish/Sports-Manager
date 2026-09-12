@@ -50,7 +50,16 @@ export default function Leaderboard({ rows, valueLabel = 'Win %', renderValue, h
             {i + 1}
           </span>
           <Avatar id={row.playerId || row.id} name={row.name} size="xs" />
-          <span className="text-sm text-gray-900 dark:text-gray-100 flex-1 truncate">{row.name}</span>
+          {/* Name, with an optional second line for the record behind the
+              headline figure - "3W 1L - 2 left" while a session is running.
+              Under the name rather than beside it: these rows sit in a 280px
+              sidebar on desktop, where an inline record pushes the value off. */}
+          <div className="flex-1 min-w-0">
+            <span className="block text-sm text-gray-900 dark:text-gray-100 truncate">{row.name}</span>
+            {row.record && (
+              <span className="block text-[10px] text-gray-400 dark:text-gray-500 truncate">{row.record}</span>
+            )}
+          </div>
           {/* Free-form chip, e.g. the "Guest 2/12" mark on a drop-in player. */}
           {row.tag && (
             <span
@@ -60,7 +69,6 @@ export default function Leaderboard({ rows, valueLabel = 'Win %', renderValue, h
               {row.tag}
             </span>
           )}
-          {row.record && <span className="text-xs text-gray-400 dark:text-gray-500">{row.record}</span>}
           <span className="text-sm font-semibold text-brand dark:text-emerald-400">
             {renderValue ? (
               renderValue(row)

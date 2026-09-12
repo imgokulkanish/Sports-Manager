@@ -15,12 +15,20 @@ import Leaderboard, { ValueWithCount } from '../components/Leaderboard'
 import Avatar from '../components/Avatar'
 import SampleTag from '../components/SampleTag'
 import Footer from '../components/Footer'
-import { CalendarIcon, PeopleIcon, ActivityIcon, TrophyIcon } from '../components/icons'
+import { CalendarIcon, PeopleIcon, ActivityIcon, TrophyIcon, MedalIcon } from '../components/icons'
 import { ListSkeleton, MetricGridSkeleton, ButtonRowSkeleton } from '../components/Skeleton'
 import NextPayerCard from '../../shell/components/NextPayerCard'
 import SportChip from '../../shell/components/SportChip'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+// "2 of 5 sessions", plus who else is level on that count.
+function sessionWinSummary({ sessionWins, sessionsPlayed, tied }) {
+  const base = `${sessionWins} of ${sessionsPlayed} session${sessionsPlayed === 1 ? '' : 's'}`
+  if (tied < 2) return base
+  const others = tied - 1
+  return `${base} — tied with ${others} other${others === 1 ? '' : 's'}`
+}
 
 function AvatarStack({ players }) {
   const shown = players.slice(0, 3)
@@ -88,7 +96,26 @@ export default function Dashboard() {
     () => leaderboard(statsById, { minMatches: MIN_RANKED_MATCHES }).slice(0, 5),
     [statsById],
   )
-  const sessionWinRows = useMemo(() => sessionWinCounts(sessions, players.filter((p) => p.isActive)).slice(0, 5), [sessions, players])
+  const allSessionWinRows = useMemo(
+    () => sessionWinCounts(sessions, players.filter((p) => p.isActive)),
+    [sessions, players],
+  )
+  const sessionWinRows = useMemo(() => allSessionWinRows.slice(0, 5), [allSessionWinRows])
+
+  // Who has won the most nights outright. Distinct from "best win rate" above:
+  // that one counts individual matches, this counts evenings topped, and they
+  // are regularly different people - a steady 60% rarely wins the day, while
+  // someone streaky takes it outright and loses the rest.
+  //
+  // A shared top score is called out rather than silently resolved. The sort
+  // breaks the tie on sessions played so the card is deterministic, but that
+  // is an ordering rule, not a claim that one of them is ahead.
+  const mostSessionsWon = useMemo(() => {
+    const top = allSessionWinRows[0]
+    if (!top) return null
+    const tied = allSessionWinRows.filter((r) => r.sessionWins === top.sessionWins).length
+    return { ...top, tied }
+  }, [allSessionWinRows])
 
   // Sessions only - quick play has no schedule to continue and nothing to
   // resume, so it would just be dead weight in a feed that links into rounds.
@@ -172,6 +199,16 @@ export default function Dashboard() {
           trend={bestWinRateTrend}
           tag={bestWinRatePlayer && <SampleTag matches={bestWinRatePlayer.totalMatches} />}
           icon={TrophyIcon}
+          accent="brand"
+        />
+        {/* Spans the row: with five cards in a two-column grid something has
+            to, and this is the one worth the width. */}
+        <MetricCard
+          className="col-span-2"
+          label="Most sessions won"
+          value={mostSessionsWon?.name || '—'}
+          sub={mostSessionsWon ? sessionWinSummary(mostSessionsWon) : 'No session won yet'}
+          icon={MedalIcon}
           accent="brand"
         />
       </div>

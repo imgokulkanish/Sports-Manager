@@ -676,5 +676,60 @@ export function sessionWinCounts(sessions, players) {
       sessionsPlayed: played[p.id] || 0,
     }))
     .filter((r) => r.sessionWins > 0)
-    .sort((a, b) => b.sessionWins - a.sessionWins)
+    // Wins first, then the fewer nights those wins came off - two players on
+    // three wins each are not level if one needed twice the sessions. Name
+    // last so the order is stable rather than however players happened to
+    // load: the Dashboard names the top row as "most sessions won", and that
+    // card shouldn't change who it credits between refreshes.
+    .sort(
+      (a, b) =>
+        b.sessionWins - a.sessionWins ||
+        a.sessionsPlayed - b.sessionsPlayed ||
+        a.name.localeCompare(b.name),
+    )
+}
+
+/**
+ * The strongest pairing in the group, for the Stats page's "Best partnership"
+ * card. Highest win rate together, and where several are level - a 2-0 and a
+ * 4-0 are both 100% - the pairing with the most matches behind it wins, the
+ * same tiebreak rankedPartnerships uses. Without it the card named whichever
+ * 100% pairing the player list happened to reach first, so a pair who had won
+ * four together lost the card to one who had won two.
+ *
+ * `playerIds` scopes it to the players the page is showing (active only), and
+ * partnerStats is symmetric, so each pair is visited once via `a >= b`.
+ */
+export function bestPartnership(statsById, playerIds, { minMatches = 2 } = {}) {
+  let best = null
+  for (const a of playerIds) {
+    for (const b of playerIds) {
+      if (a >= b) continue
+      const stat = statsById[a]?.partnerStats?.[b]
+      if (!stat || stat.matches < minMatches) continue
+      const rate = stat.wins / stat.matches
+      if (!best || rate > best.rate || (rate === best.rate && stat.matches > best.matches)) {
+        best = { a, b, rate, matches: stat.matches, wins: stat.wins }
+      }
+    }
+  }
+  return best
+}
+
+/**
+ * Matches each player still has scheduled but unplayed in a live session,
+ * keyed by player id. Counts what is actually on the schedule rather than
+ * (total rounds - played), so a player substituted out of a later round, or
+ * added part-way through, gets the count their own card shows.
+ */
+export function remainingMatchCounts(session) {
+  const scores = session?.scores || {}
+  const left = {}
+  ;(session?.schedule || []).forEach((match, i) => {
+    if (scores[i]) return
+    ;[...(match.team1 || []), ...(match.team2 || [])].forEach((id) => {
+      left[id] = (left[id] || 0) + 1
+    })
+  })
+  return left
 }

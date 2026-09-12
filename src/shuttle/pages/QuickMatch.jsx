@@ -36,6 +36,11 @@ const FORMATS = {
   doubles: { label: 'Doubles', perSide: 2 },
 }
 
+const localDateValue = (date = new Date()) => {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return offsetDate.toISOString().slice(0, 10)
+}
+
 function SideBox({ title, ids, perSide, playersById, onRemove }) {
   const slots = Array.from({ length: perSide }, (_, i) => ids[i] ?? null)
   return (
@@ -67,7 +72,8 @@ function SideBox({ title, ids, perSide, playersById, onRemove }) {
 
 export default function QuickMatch() {
   const { players, loading: playersLoading } = usePlayers()
-  const { quickPlay, loading: quickLoading, addMatch, removeMatch } = useQuickPlay()
+  const [matchDate, setMatchDate] = useState(() => localDateValue())
+  const { quickPlay, loading: quickLoading, addMatch, removeMatch } = useQuickPlay(matchDate)
   const { showToast } = useToast()
 
   const [format, setFormat] = useState('doubles')
@@ -232,6 +238,16 @@ export default function QuickMatch() {
         session attendance.
       </p>
 
+      <label className="flex items-center justify-between gap-3 mb-4 text-sm text-gray-700 dark:text-gray-300">
+        <span className="font-medium">Match date</span>
+        <input
+          type="date"
+          value={matchDate}
+          onChange={(e) => setMatchDate(e.target.value)}
+          className="border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg px-3 py-2 text-sm"
+        />
+      </label>
+
       <div className="flex gap-2 mb-4">
         {Object.entries(FORMATS).map(([key, { label }]) => (
           <button
@@ -374,7 +390,7 @@ export default function QuickMatch() {
         <>
           <div className="flex items-baseline justify-between mb-2">
             <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-              Today · {matches.length} match{matches.length === 1 ? '' : 'es'}
+              {matches.length} match{matches.length === 1 ? '' : 'es'}
             </p>
             <button
               type="button"
@@ -424,7 +440,7 @@ export default function QuickMatch() {
             })}
           </div>
 
-          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Today&apos;s record</p>
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Match record</p>
           <div className="flex flex-col gap-1.5">
             {dayBoard.map((row) => (
               <div

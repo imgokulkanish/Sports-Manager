@@ -22,6 +22,7 @@ import {
   moveSlot,
   moveCourtPlanSlot,
   guestIdsIn,
+  groupBySlot,
   pendingSlots,
   replacePendingMatches,
   generateSchedule,
@@ -311,6 +312,32 @@ export function useSession(sessionId) {
     [session, updateSession],
   )
 
+  /** Add one more round without disturbing the planned or scored matches. */
+  const addExtraRound = useCallback(
+    async (playerRecords) => {
+      const playerIds = session?.playerIds || []
+      const roster = playerIds.map((id) => playerRecords.find((p) => p.id === id)).filter(Boolean)
+      if (roster.length < 4) return { ok: false, reason: 'not-enough-players' }
+
+      const existingSlots = groupBySlot(session?.schedule || [])
+      const nextSlot = existingSlots.length ? Math.max(...existingSlots.map((entry) => entry.slot)) + 1 : 0
+      const courtCount = Math.min(session?.courtsBySlot?.at(-1) || 1, Math.floor(roster.length / 4))
+      const generated = generateSchedule(applySessionOverrides(roster), {}, {
+        courtsBySlot: [courtCount],
+        priorSchedule: session?.schedule || [],
+      })
+      if (!generated) return { ok: false, reason: 'generate-failed' }
+
+      const newMatches = generated.schedule.map((match) => ({ ...match, slot: nextSlot }))
+      await updateSession({
+        schedule: [...(session?.schedule || []), ...newMatches],
+        courtsBySlot: [...(session?.courtsBySlot || existingSlots.map((entry) => entry.matches.length)), courtCount],
+      })
+      return { ok: true, matches: newMatches.length }
+    },
+    [session, updateSession],
+  )
+
   /**
    * Record the singles tiebreaker between the two players who finished level
    * on match points. Stored beside the schedule rather than in it: it's a
@@ -360,6 +387,7 @@ export function useSession(sessionId) {
     swapRounds,
     moveRound,
     addPlayerAndRedraw,
+    addExtraRound,
     recordDecider,
     clearDecider,
     completeSession,

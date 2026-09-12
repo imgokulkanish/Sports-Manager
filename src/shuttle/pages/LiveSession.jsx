@@ -4,10 +4,17 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useSession } from '../hooks/useSession'
 import { usePlayers } from '../hooks/usePlayers'
 import { groupBySlot, pendingSlots } from '../engine/scheduleEngine'
-import { sessionLeaderboard, deciderCandidates, tiedAtTopCount, formatDiff } from '../engine/statsEngine'
+import {
+  sessionLeaderboard,
+  deciderCandidates,
+  tiedAtTopCount,
+  formatDiff,
+  remainingMatchCounts,
+} from '../engine/statsEngine'
 import { useAdmin } from '../../shell/components/Admin'
 import RoundCard from '../components/RoundCard'
 import UpNextList from '../components/UpNextList'
+import RecentResults from '../components/RecentResults'
 import Leaderboard from '../components/Leaderboard'
 import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
@@ -29,6 +36,7 @@ export default function LiveSession() {
     swapRounds,
     moveRound,
     addPlayerAndRedraw,
+    addExtraRound,
     recordDecider,
     clearDecider,
     completeSession,
@@ -46,11 +54,13 @@ export default function LiveSession() {
   const [playingDecider, setPlayingDecider] = useState(false)
   const [deciderBusy, setDeciderBusy] = useState(false)
   const [movingRound, setMovingRound] = useState(false)
+  const [addingExtraRound, setAddingExtraRound] = useState(false)
 
   const playersById = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players])
 
   const scores = session?.scores || {}
   const schedule = session?.schedule || []
+  const winningScore = session?.winningScore === 11 ? 11 : 21
 
   // A "round" on screen is a time slot, which holds one match per court booked
   // for it. Single-court sessions (and every session created before second-court
@@ -77,15 +87,29 @@ export default function LiveSession() {
     return scored.length ? Math.max(...scored) : -1
   }, [scores])
 
-  // The next five rounds, so the group can see far enough ahead to know who is
-  // sitting out soon and reorder around it - the list is draggable, and three
-  // rows is too small a window to be worth rearranging.
-  const upcomingSlots = useMemo(
-    () => slots.slice(currentSlotIndex + 1, currentSlotIndex + 6),
-    [slots, currentSlotIndex],
-  )
+  // Rounds already finished, newest first. Stops short of the round on court:
+  // a two-court slot with one result in shows that result above as its own
+  // card, and listing it here as well would read as two different games.
+  const recentResults = useMemo(() => {
+    const rows = []
+    for (let i = 0; i < Math.min(currentSlotIndex, slots.length); i++) {
+      for (const { index, match, court } of slots[i].matches) {
+        if (!scores[index]) continue
+        rows.push({ index, match, court, scored: scores[index], roundNumber: i + 1 })
+      }
+    }
+    return rows.reverse()
+  }, [slots, scores, currentSlotIndex])
 
-  // Every round after this one, for the "play a later round now" swap. All of
+  // Matches each player still has ahead of them, for the leaderboard's "left"
+  // figure. Read off the schedule itself, so a substitution or a late addition
+  // moves it the way the rounds actually moved.
+  const matchesLeft = useMemo(() => remainingMatchCounts(session), [session])
+
+  // Every round after this one. It feeds both the draggable "Up next" list and
+  // the "play a later round now" swap: the whole remaining evening is listed,
+  // not a five-round window, so the group can see who is sitting out late on
+  // and drag a round the whole way up rather than one window at a time. All of
   // them are unscored by definition - currentSlotIndex is the first with any
   // match still open - so reordering them can't disturb a recorded result.
   const laterSlots = useMemo(() => slots.slice(currentSlotIndex + 1), [slots, currentSlotIndex])
@@ -115,10 +139,14 @@ export default function LiveSession() {
       sessionLeaderboard(session).map((row) => ({
         ...row,
         name: playersById[row.playerId]?.name || row.playerId,
+        // Won / lost / still to play, under the name. The points column says
+        // who is ahead; this says how much of the evening that verdict rests
+        // on, and who still has the rounds left to overturn it.
+        record: `${row.wins}W ${row.losses}L - ${matchesLeft[row.playerId] || 0} left`,
         tag: row.guest ? `Guest ${row.matches}/${schedule.length}` : row.deciderWon ? 'Decider' : null,
         tagTitle: row.guest ? `Dropped in for ${row.matches} of this session's ${schedule.length} matches` : null,
       })),
-    [session, playersById, schedule.length],
+    [session, playersById, schedule.length, matchesLeft],
   )
 
   // Two players level on match points at the end of the session. Left alone
@@ -269,6 +297,22 @@ export default function LiveSession() {
     }
   }
 
+  const handleAddExtraRound = async () => {
+    setAddingExtraRound(true)
+    try {
+      const result = await addExtraRound(players)
+      if (!result.ok) {
+        showToast(result.reason === 'not-enough-players' ? 'Need at least 4 session players for another round' : 'Could not schedule another round', 'error')
+        return
+      }
+      showToast(`${result.matches} extra match${result.matches === 1 ? '' : 'es'} scheduled`)
+    } catch {
+      showToast('Could not schedule another round', 'error')
+    } finally {
+      setAddingExtraRound(false)
+    }
+  }
+
   const handleComplete = async () => {
     setConfirmComplete(false)
     await completeSession()
@@ -360,6 +404,7 @@ export default function LiveSession() {
                   restingPlayers={match.resting.map((pid) => ({ id: pid, name: playersById[pid]?.name || pid }))}
                   onWin={(team, points) => handleWin(index, team, points)}
                   disabled={savingIndex === index}
+                  targetScore={winningScore}
                 />
               )
             })}
@@ -385,16 +430,21 @@ export default function LiveSession() {
               )}
             </div>
 
-            {upcomingSlots.length > 0 && (
+            {laterSlots.length > 0 && (
               <div>
                 <div className="flex items-baseline justify-between mb-2">
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Up next</p>
-                  {upcomingSlots.length > 1 && (
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    Up next{' '}
+                    <span className="font-normal text-gray-400 dark:text-gray-500">
+                      ({laterSlots.length} round{laterSlots.length === 1 ? '' : 's'} left)
+                    </span>
+                  </p>
+                  {laterSlots.length > 1 && (
                     <p className="text-[10px] text-gray-400 dark:text-gray-500">Drag to reorder</p>
                   )}
                 </div>
                 <UpNextList
-                  rows={upcomingSlots}
+                  rows={laterSlots}
                   startNumber={currentSlotIndex + 2}
                   isMultiCourt={isMultiCourt}
                   playersById={playersById}
@@ -403,6 +453,8 @@ export default function LiveSession() {
                 />
               </div>
             )}
+
+            <RecentResults rows={recentResults} isMultiCourt={isMultiCourt} playersById={playersById} />
 
             {roundsPlayed > 0 && (
               <button
@@ -436,6 +488,7 @@ export default function LiveSession() {
                 onWin={handleDeciderWin}
                 onCancel={() => setPlayingDecider(false)}
                 disabled={deciderBusy}
+                targetScore={winningScore}
               />
             ) : (
               <div className="bg-brand-light dark:bg-brand/15 border border-brand-border dark:border-brand/30 rounded-xl p-5 text-center">
@@ -482,6 +535,15 @@ export default function LiveSession() {
                 </button>
               </div>
             )}
+            <RecentResults rows={recentResults} isMultiCourt={isMultiCourt} playersById={playersById} />
+
+            <button
+              onClick={handleAddExtraRound}
+              disabled={addingExtraRound}
+              className="border border-gray-300 dark:border-gray-700 rounded-lg py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+            >
+              {addingExtraRound ? 'Scheduling round...' : 'Schedule another round'}
+            </button>
             <button
               onClick={handleUndo}
               className="border border-gray-300 dark:border-gray-700 rounded-lg py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-gray-800"

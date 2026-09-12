@@ -52,3 +52,15 @@ export function TrophyIcon({ className }) {
     </svg>
   )
 }
+
+// A rosette, for "most sessions won". Deliberately not another trophy: the
+// win-rate card next to it already carries one, and two identical icons side
+// by side read as two views of the same stat rather than two different ones.
+export function MedalIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <circle cx="12" cy="15" r="5" strokeLinejoin="round" />
+      <path d="M8.5 10.5 6 3h4l2 4 2-4h4l-2.5 7.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
