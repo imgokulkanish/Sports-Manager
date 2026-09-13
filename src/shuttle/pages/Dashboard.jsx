@@ -314,7 +314,7 @@ export default function Dashboard() {
           sub={
             improved
               ? withTie(`${improved.before}% → ${improved.after}% win rate`, improved.tied)
-              : 'Nobody up 5+ points lately'
+              : 'Nobody up 4+ points lately'
           }
           icon={TrendUpIcon}
           accent="brand"

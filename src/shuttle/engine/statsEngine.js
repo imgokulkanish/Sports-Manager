@@ -288,10 +288,19 @@ export function recentForm(stat, n = 5) {
  */
 export function attendanceRate(player, sessions) {
   if (!player) return null
-  const joinedAt = toMillis(player.createdAt)
-  const eligible = completedSessions(sessions).filter(
-    (s) => new Date(s.date).getTime() >= joinedAt,
-  )
+  const completed = completedSessions(sessions)
+  // "Joined" is the earlier of being added to the app and first turning up.
+  // createdAt alone is when the player RECORD was made, and the group added
+  // people after sessions they had already played were logged - so a regular
+  // added late had every session before that dropped from both sides of the
+  // rate. Perumal read 4 of 5 while actually attending 9 of 10, which put him
+  // level with, then behind, players who had turned up less.
+  const firstPlayed = completed
+    .filter((s) => (s.playerIds || []).includes(player.id))
+    .reduce((min, s) => Math.min(min, new Date(s.date).getTime()), Infinity)
+  const created = toMillis(player.createdAt)
+  const joinedAt = created ? Math.min(created, firstPlayed) : 0
+  const eligible = completed.filter((s) => new Date(s.date).getTime() >= joinedAt)
   if (!eligible.length) return null
   const attended = eligible.filter((s) => (s.playerIds || []).includes(player.id)).length
   return { attended, eligible: eligible.length, rate: attended / eligible.length }
@@ -839,7 +848,7 @@ export function mostReliable(players, sessions, { minSessions = 4 } = {}) {
 export function mostImproved(
   sessions,
   players,
-  { days = 30, minRecent = 8, minPrior = 10, minGain = 5, now = Date.now() } = {},
+  { days = 30, minRecent = 8, minPrior = 10, minGain = 4, now = Date.now() } = {},
 ) {
   const cutoff = now - days * 24 * 60 * 60 * 1000
   const recent = computePlayerStats(sessions.filter((s) => new Date(s.date).getTime() >= cutoff), players)
