@@ -33,6 +33,7 @@ export default function LiveSession() {
     recordScore,
     undoLastScore,
     substitutePlayer,
+    swapPlayers,
     swapRounds,
     moveRound,
     addPlayerAndRedraw,
@@ -241,6 +242,24 @@ export default function LiveSession() {
     }
   }
 
+  const handleSwapPlayers = async (matchIndex, idA, idB) => {
+    setAdjustBusy(true)
+    try {
+      const done = await swapPlayers(matchIndex, idA, idB)
+      if (!done) {
+        showToast('Those two are already on the same team', 'error')
+        return false
+      }
+      showToast(`${playersById[idA]?.name || idA} and ${playersById[idB]?.name || idB} switched sides`)
+      return true
+    } catch {
+      showToast('Saved locally — will sync when back online', 'info')
+      return true
+    } finally {
+      setAdjustBusy(false)
+    }
+  }
+
   const handleSwapRounds = async (targetSlot) => {
     setAdjustBusy(true)
     try {
@@ -417,7 +436,7 @@ export default function LiveSession() {
                 onClick={() => setAdjusting(true)}
                 className="text-xs text-gray-500 dark:text-gray-400 underline hover:text-gray-700 dark:hover:text-gray-200"
               >
-                Player missing? Adjust this round
+                Player missing or switching sides? Adjust this round
               </button>
               {pendingRoundCount > 0 && (
                 <button
@@ -602,6 +621,7 @@ export default function LiveSession() {
         laterSlots={laterSlots}
         outsideCandidates={outsideCandidates}
         onSubstitute={handleSubstitute}
+        onSwapPlayers={handleSwapPlayers}
         onSwapRounds={handleSwapRounds}
         onAddGuest={handleAddGuest}
         busy={adjustBusy}

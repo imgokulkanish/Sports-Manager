@@ -47,9 +47,9 @@ export function GridSkeleton({ items = 6 }) {
 }
 
 /** Mirrors MetricCard: small label line + larger value line. */
-export function MetricGridSkeleton({ items = 4 }) {
+export function MetricGridSkeleton({ items = 4, columns = 'grid-cols-2' }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className={`grid ${columns} gap-3`}>
       {Array.from({ length: items }).map((_, i) => (
         <div key={i} className={`${CARD} flex flex-col gap-1.5`}>
           <Line className="h-2.5 w-14" />

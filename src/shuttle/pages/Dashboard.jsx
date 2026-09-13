@@ -8,26 +8,48 @@ import {
   winRate,
   sessionWinCounts,
   isQuickPlay,
+  bestPartnership,
+  hotStreak,
+  mostDominant,
+  mostMVPs,
+  mostReliable,
+  mostImproved,
   MIN_RANKED_MATCHES,
+  MIN_RELIABLE_MATCHES,
 } from '../engine/statsEngine'
 import { MetricCard } from '../components/StatsBadge'
 import Leaderboard, { ValueWithCount } from '../components/Leaderboard'
 import Avatar from '../components/Avatar'
 import SampleTag from '../components/SampleTag'
 import Footer from '../components/Footer'
-import { CalendarIcon, PeopleIcon, ActivityIcon, TrophyIcon, MedalIcon } from '../components/icons'
+import {
+  CalendarIcon,
+  PeopleIcon,
+  ActivityIcon,
+  TrophyIcon,
+  MedalIcon,
+  FlameIcon,
+  HandshakeIcon,
+  TargetIcon,
+  StarIcon,
+  CheckCircleIcon,
+  TrendUpIcon,
+} from '../components/icons'
 import { ListSkeleton, MetricGridSkeleton, ButtonRowSkeleton } from '../components/Skeleton'
 import NextPayerCard from '../../shell/components/NextPayerCard'
 import SportChip from '../../shell/components/SportChip'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
-// "2 of 5 sessions", plus who else is level on that count.
-function sessionWinSummary({ sessionWins, sessionsPlayed, tied }) {
-  const base = `${sessionWins} of ${sessionsPlayed} session${sessionsPlayed === 1 ? '' : 's'}`
-  if (tied < 2) return base
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// Appends who else is level on the top figure. Every highlight card uses it:
+// a tiebreak picks whose name goes on the card, but it isn't a claim that
+// they are actually ahead.
+function withTie(base, tied) {
+  if (!tied || tied < 2) return base
   const others = tied - 1
-  return `${base} — tied with ${others} other${others === 1 ? '' : 's'}`
+  return `${base} — tied with ${plural(others, 'other')}`
 }
 
 function AvatarStack({ players }) {
@@ -117,6 +139,22 @@ export default function Dashboard() {
     return { ...top, tied }
   }, [allSessionWinRows])
 
+  // Highlights are about the current group, so archived players are left out.
+  const activePlayers = useMemo(() => players.filter((p) => p.isActive), [players])
+  const activeIds = useMemo(() => activePlayers.map((p) => p.id), [activePlayers])
+
+  const streak = useMemo(() => hotStreak(statsById, activeIds), [statsById, activeIds])
+  // Four matches together, the app's "reliable sample" line: at two, a lucky
+  // 2-0 outranks a pair who have gone 7-1.
+  const duo = useMemo(() => {
+    const best = bestPartnership(statsById, activeIds, { minMatches: MIN_RELIABLE_MATCHES })
+    return best && best.wins > 0 ? best : null
+  }, [statsById, activeIds])
+  const dominant = useMemo(() => mostDominant(statsById, activeIds), [statsById, activeIds])
+  const mvp = useMemo(() => mostMVPs(sessions, activePlayers), [sessions, activePlayers])
+  const reliable = useMemo(() => mostReliable(activePlayers, sessions), [activePlayers, sessions])
+  const improved = useMemo(() => mostImproved(sessions, activePlayers), [sessions, activePlayers])
+
   // Sessions only - quick play has no schedule to continue and nothing to
   // resume, so it would just be dead weight in a feed that links into rounds.
   const recentSessions = useMemo(
@@ -133,8 +171,11 @@ export default function Dashboard() {
             <p className="text-xs text-gray-400 dark:text-gray-500">Weekly badminton sessions</p>
           </div>
         </div>
+        <div className="mb-3">
+          <MetricGridSkeleton items={2} />
+        </div>
         <div className="mb-5">
-          <MetricGridSkeleton items={4} />
+          <MetricGridSkeleton items={9} columns="grid-cols-2 md:grid-cols-3" />
         </div>
         <div className="mb-5">
           <ButtonRowSkeleton items={3} />
@@ -175,7 +216,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-5">
+      <div className="grid grid-cols-2 gap-3 mb-3">
         <MetricCard
           label="Total sessions"
           value={completedSessions}
@@ -184,6 +225,11 @@ export default function Dashboard() {
           accent="gray"
         />
         <MetricCard label="Total players" value={totalPlayers} icon={PeopleIcon} accent="gray" />
+      </div>
+
+      {/* Nine highlights: a clean 3x3 from md up. On a phone's two columns the
+          ninth spans the row rather than leaving a hole beside it. */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
         <MetricCard
           label="Most active"
           value={mostActive?.name || '—'}
@@ -201,14 +247,76 @@ export default function Dashboard() {
           icon={TrophyIcon}
           accent="brand"
         />
-        {/* Spans the row: with five cards in a two-column grid something has
-            to, and this is the one worth the width. */}
         <MetricCard
-          className="col-span-2"
           label="Most sessions won"
           value={mostSessionsWon?.name || '—'}
-          sub={mostSessionsWon ? sessionWinSummary(mostSessionsWon) : 'No session won yet'}
+          sub={
+            mostSessionsWon
+              ? withTie(`${mostSessionsWon.sessionWins} of ${plural(mostSessionsWon.sessionsPlayed, 'session')}`, mostSessionsWon.tied)
+              : 'No session won yet'
+          }
           icon={MedalIcon}
+          accent="brand"
+        />
+        <MetricCard
+          label="Hot streak"
+          value={streak?.name || '—'}
+          sub={streak ? withTie(`${streak.streak} wins in a row`, streak.tied) : 'Nobody on 3+ wins lately'}
+          icon={FlameIcon}
+          accent="blue"
+        />
+        <MetricCard
+          label="Best duo"
+          value={duo ? `${playersById[duo.a]?.name} & ${playersById[duo.b]?.name}` : '—'}
+          sub={
+            duo
+              ? `${duo.wins}-${duo.matches - duo.wins} together, ${duo.pointDiff > 0 ? '+' : ''}${duo.pointDiff} pts${
+                  duo.tied > 1 ? ` — level with ${plural(duo.tied - 1, 'other pair')}` : ''
+                }`
+              : `min ${MIN_RELIABLE_MATCHES} matches together`
+          }
+          icon={HandshakeIcon}
+          accent="brand"
+        />
+        <MetricCard
+          label="Most dominant"
+          value={dominant?.name || '—'}
+          sub={
+            dominant
+              ? withTie(`+${dominant.diff.toFixed(1)} points per match`, dominant.tied)
+              : `min ${MIN_RANKED_MATCHES} scored matches`
+          }
+          icon={TargetIcon}
+          accent="blue"
+        />
+        <MetricCard
+          label="Most MVPs"
+          value={mvp?.name || '—'}
+          sub={mvp ? withTie(plural(mvp.mvps, 'MVP award'), mvp.tied) : 'No MVP awarded yet'}
+          icon={StarIcon}
+          accent="brand"
+        />
+        <MetricCard
+          label="Most reliable"
+          value={reliable?.name || '—'}
+          sub={
+            reliable
+              ? withTie(`${reliable.attended} of ${plural(reliable.eligible, 'session')} (${reliable.rate}%)`, reliable.tied)
+              : 'min 4 sessions since joining'
+          }
+          icon={CheckCircleIcon}
+          accent="blue"
+        />
+        <MetricCard
+          className="col-span-2 md:col-span-1"
+          label="Most improved (30 days)"
+          value={improved?.name || '—'}
+          sub={
+            improved
+              ? withTie(`${improved.before}% → ${improved.after}% win rate`, improved.tied)
+              : 'Nobody up 5+ points lately'
+          }
+          icon={TrendUpIcon}
           accent="brand"
         />
       </div>

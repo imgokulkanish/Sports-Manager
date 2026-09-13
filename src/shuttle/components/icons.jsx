@@ -64,3 +64,62 @@ export function MedalIcon({ className }) {
     </svg>
   )
 }
+
+export function FlameIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path
+        d="M12 21c-3.9 0-7-2.9-7-6.6 0-3.1 2.2-5 3.6-7 .4 1.6 1.3 2.7 2.4 3.2C11 7 12.5 4.6 14.8 3c-.3 3 1.2 4.8 2.6 6.5 1 1.3 1.6 2.8 1.6 4.9 0 3.7-3.1 6.6-7 6.6Z"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+export function HandshakeIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <circle cx="8" cy="8" r="3" />
+      <circle cx="16" cy="8" r="3" />
+      <path d="M2.5 19c.6-3 2.8-5 5.5-5s4.9 2 5.5 5M10.5 19c.6-3 2.8-5 5.5-5s4.9 2 5.5 5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function TargetIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4.5" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function StarIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path
+        d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+export function CheckCircleIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m8.3 12.3 2.5 2.5 5-5.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function TrendUpIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+      <path d="m3.5 16.5 5.5-5.5 4 4 7.5-7.5M15 7.5h5.5V13" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}

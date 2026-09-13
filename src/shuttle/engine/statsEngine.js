@@ -93,7 +93,14 @@ export function computePlayerStats(sessions, players) {
       sessionWins[id] = 0
     })
 
-    ;(session.schedule || []).forEach((round, idx) => {
+    // Walked in playing order, not array order. A round swapped forward or
+    // dragged in the "Up next" list keeps its array position (scores are keyed
+    // by it) and only its `slot` changes, so array order can run a later match
+    // before an earlier one - which reorders every streak built from here.
+    const inPlayOrder = (session.schedule || [])
+      .map((round, idx) => ({ round, idx }))
+      .sort((a, b) => (a.round.slot ?? a.idx) - (b.round.slot ?? b.idx) || (a.round.court ?? 1) - (b.round.court ?? 1))
+    inPlayOrder.forEach(({ round, idx }) => {
       const scoreEntry = session.scores?.[idx]
       const winnerTeam = scoreEntry?.winner
       if (!winnerTeam) return
@@ -156,20 +163,26 @@ export function computePlayerStats(sessions, players) {
       // nothing on the stats pages, and one game against a passer-by isn't a
       // partnership or a rivalry worth reporting. The match itself still
       // counts in full for the roster players who played it.
-      const recordPartnership = (team, won) => {
+      // `margin` is the pair's point difference for this match (null on an
+      // old winner-only score). It separates partnerships whose records are
+      // identical - two pairs at 4-0 are only level until you ask how
+      // convincingly each of them won.
+      const recordPartnership = (team, won, margin) => {
         if (team.length !== 2) return
         const [x, y] = team
         ;[[x, y], [y, x]].forEach(([self, mate]) => {
           if (!byId[self] || isGuestId(mate)) return
-          byId[self].partnerStats[mate] = byId[self].partnerStats[mate] || { matches: 0, wins: 0 }
+          byId[self].partnerStats[mate] = byId[self].partnerStats[mate] || { matches: 0, wins: 0, pointDiff: 0 }
           byId[self].partnerStats[mate].matches++
           if (won) byId[self].partnerStats[mate].wins++
+          if (margin != null) byId[self].partnerStats[mate].pointDiff += margin
         })
       }
       const partnerWon1 = winnerTeam === 1
       const partnerWon2 = winnerTeam === 2
-      recordPartnership(round.team1, partnerWon1)
-      recordPartnership(round.team2, partnerWon2)
+      const margin1 = pts ? (pts.team1 || 0) - (pts.team2 || 0) : null
+      recordPartnership(round.team1, partnerWon1, margin1)
+      recordPartnership(round.team2, partnerWon2, margin1 == null ? null : -margin1)
       // opponent stats
       for (const x of round.team1) {
         for (const y of round.team2) {
@@ -701,19 +714,26 @@ export function sessionWinCounts(sessions, players) {
  * partnerStats is symmetric, so each pair is visited once via `a >= b`.
  */
 export function bestPartnership(statsById, playerIds, { minMatches = 2 } = {}) {
-  let best = null
+  const rows = []
   for (const a of playerIds) {
     for (const b of playerIds) {
       if (a >= b) continue
       const stat = statsById[a]?.partnerStats?.[b]
       if (!stat || stat.matches < minMatches) continue
-      const rate = stat.wins / stat.matches
-      if (!best || rate > best.rate || (rate === best.rate && stat.matches > best.matches)) {
-        best = { a, b, rate, matches: stat.matches, wins: stat.wins }
-      }
+      rows.push({ a, b, rate: stat.wins / stat.matches, matches: stat.matches, wins: stat.wins, pointDiff: stat.pointDiff || 0 })
     }
   }
-  return best
+  if (!rows.length) return null
+  // Rate, then matches, then point difference together. That last step is
+  // what stops two identical records being settled by player-list order: a
+  // card used to name one 4-0 pair and silently leave out the other.
+  rows.sort((x, y) => y.rate - x.rate || y.matches - x.matches || y.pointDiff - x.pointDiff)
+  const top = rows[0]
+  // Pairs with the same win-loss record, whatever the points say. The points
+  // decide whose names go on a card, but a 4-0 is still level with a 4-0, and
+  // the card should say so rather than imply the other pair is behind.
+  const tied = rows.filter((r) => r.rate === top.rate && r.matches === top.matches).length
+  return { ...top, tied }
 }
 
 /**
@@ -732,4 +752,109 @@ export function remainingMatchCounts(session) {
     })
   })
   return left
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard highlight cards. Each returns the leader plus `tied` - how many
+// players share the top figure - so a card can say "tied with 2 others"
+// instead of quietly crediting whoever the tiebreak happened to put first.
+// Every one returns null rather than a leader off too little evidence.
+// ---------------------------------------------------------------------------
+
+function leaderOf(rows, value, tiebreak = () => 0) {
+  if (!rows.length) return null
+  const sorted = [...rows].sort((a, b) => value(b) - value(a) || tiebreak(a, b))
+  const top = sorted[0]
+  return { ...top, tied: sorted.filter((r) => value(r) === value(top)).length }
+}
+
+/**
+ * Longest winning run still alive. Below `min` it's a couple of good games,
+ * not a streak.
+ *
+ * "Still alive" also has to mean still playing. A run is only ended by a loss,
+ * so someone who won their last nine matches and then stopped coming would
+ * otherwise top this card for months on a streak nobody has seen - so the
+ * player's last match must fall within `activeDays`.
+ */
+export function hotStreak(statsById, playerIds, { min = 3, activeDays = 30, now = Date.now() } = {}) {
+  const cutoff = now - activeDays * 24 * 60 * 60 * 1000
+  const playedRecently = (st) => {
+    const last = st.matchHistory?.[st.matchHistory.length - 1]
+    return last && new Date(last.date).getTime() >= cutoff
+  }
+  const rows = playerIds
+    .map((id) => statsById[id])
+    .filter((st) => st && st.currentWinStreak >= min && playedRecently(st))
+    .map((st) => ({ playerId: st.playerId, name: st.name, streak: st.currentWinStreak, matches: st.totalMatches }))
+  return leaderOf(rows, (r) => r.streak, (a, b) => b.matches - a.matches)
+}
+
+/**
+ * Best average point difference per match: who wins comfortably, not just who
+ * wins. Only scored matches count (see avgPoints), and only a positive margin
+ * - the "most dominant" player can't be one who loses on average.
+ */
+export function mostDominant(statsById, playerIds, { minMatches = MIN_RANKED_MATCHES } = {}) {
+  const rows = []
+  for (const id of playerIds) {
+    const avg = avgPoints(statsById[id])
+    if (!avg || avg.matches < minMatches || avg.diff <= 0) continue
+    // Compared to one decimal, the precision the card shows, so two players
+    // on "+4.2" read as the tie they look like.
+    rows.push({ playerId: id, name: statsById[id].name, diff: Math.round(avg.diff * 10) / 10, matches: avg.matches })
+  }
+  return leaderOf(rows, (r) => r.diff, (a, b) => b.matches - a.matches)
+}
+
+/** Most session MVP awards. Uses sessionAchievements so "MVP" means one thing app-wide. */
+export function mostMVPs(sessions, players) {
+  const counts = sessionAchievements(sessions, players)
+  const rows = players
+    .filter((p) => counts[p.id]?.mvpCount > 0)
+    .map((p) => ({ playerId: p.id, name: p.name, mvps: counts[p.id].mvpCount }))
+  return leaderOf(rows, (r) => r.mvps, (a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Best attendance rate since joining (see attendanceRate). A minimum number of
+ * eligible sessions, because someone who joined last week is 1-of-1 = 100%.
+ */
+export function mostReliable(players, sessions, { minSessions = 4 } = {}) {
+  const rows = []
+  for (const p of players) {
+    const r = attendanceRate(p, sessions)
+    if (!r || r.eligible < minSessions) continue
+    rows.push({ playerId: p.id, name: p.name, rate: Math.round(r.rate * 100), attended: r.attended, eligible: r.eligible })
+  }
+  return leaderOf(rows, (r) => r.rate, (a, b) => b.attended - a.attended)
+}
+
+/**
+ * Biggest win-rate rise: the last `days` against everything before. Both
+ * windows need real samples - a rate off a handful of games swings 30 points
+ * on one bad night, and that would be luck on the card, not improvement.
+ * Compared in whole percentage points, which is also what the card prints.
+ */
+export function mostImproved(
+  sessions,
+  players,
+  { days = 30, minRecent = 8, minPrior = 10, minGain = 5, now = Date.now() } = {},
+) {
+  const cutoff = now - days * 24 * 60 * 60 * 1000
+  const recent = computePlayerStats(sessions.filter((s) => new Date(s.date).getTime() >= cutoff), players)
+  const prior = computePlayerStats(sessions.filter((s) => new Date(s.date).getTime() < cutoff), players)
+  const rows = []
+  for (const p of players) {
+    const r = recent[p.id]
+    const q = prior[p.id]
+    if (!r || !q || r.totalMatches < minRecent || q.totalMatches < minPrior) continue
+    const before = Math.round(winRate(q) * 100)
+    const after = Math.round(winRate(r) * 100)
+    // A rise of a few points is one good night on a sample this size, and a
+    // card calling it "most improved" would be reporting luck.
+    if (after - before < minGain) continue
+    rows.push({ playerId: p.id, name: p.name, before, after, gain: after - before, recentMatches: r.totalMatches })
+  }
+  return leaderOf(rows, (r) => r.gain, (a, b) => b.recentMatches - a.recentMatches)
 }

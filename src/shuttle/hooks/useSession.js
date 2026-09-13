@@ -17,6 +17,7 @@ import { localSubscribe, localAdd, localUpdate, localDelete, localGetOnce } from
 import { isGuestId, pruneGuestNames } from '../engine/guests'
 import {
   substituteInSchedule,
+  swapPlayersInSlot,
   swapSlots,
   swapCourtPlanSlots,
   moveSlot,
@@ -235,6 +236,21 @@ export function useSession(sessionId) {
   )
 
   /**
+   * Switch two on-court players between teams (or courts) for this round only.
+   * Deliberately not logged in `substitutions` - see swapPlayersInSlot.
+   */
+  const swapPlayers = useCallback(
+    async (matchIndex, idA, idB) => {
+      const current = session?.schedule || []
+      const schedule = swapPlayersInSlot(current, matchIndex, idA, idB)
+      if (schedule === current) return false
+      await updateSession({ schedule })
+      return true
+    },
+    [session, updateSession],
+  )
+
+  /**
    * Trade the running order of two rounds, so a round the late player isn't
    * in can be played now and theirs pushed back. Only ever called with rounds
    * that haven't been scored yet.
@@ -290,8 +306,16 @@ export function useSession(sessionId) {
       if (!pending) return { ok: false, reason: 'nothing-pending' }
 
       const roster = playerIds.map((id) => playerRecords.find((p) => p.id === id)).filter(Boolean)
+      // Everything the redraw is NOT allowed to touch, handed over as history.
+      // Without it the remaining rounds are drawn as if the evening had just
+      // started: the generator re-pairs people who already played together and
+      // leaves others never paired at all, which is exactly the complaint a
+      // late arrival is least likely to be blamed for.
+      const locked = new Set(pending.indices)
+      const priorSchedule = (session?.schedule || []).filter((_, i) => !locked.has(i))
       const generated = generateSchedule(applySessionOverrides(roster), {}, {
         courtsBySlot: pending.courtsBySlot,
+        priorSchedule,
       })
       // A court needs four players and the constraints have to be satisfiable;
       // if the draw fails, the session is left untouched rather than half-edited.
@@ -384,6 +408,7 @@ export function useSession(sessionId) {
     recordScore,
     undoLastScore,
     substitutePlayer,
+    swapPlayers,
     swapRounds,
     moveRound,
     addPlayerAndRedraw,

@@ -6,6 +6,9 @@
 //   1. Someone due on court is still on the way. Either swap them for a
 //      player who's resting this round, or push their round back and pull a
 //      round they aren't in forward, which buys them the ten minutes.
+//   3. The teams just want mixing up - two players on court switch sides (or
+//      courts) for this match. Nobody comes on or off, so it isn't logged as
+//      a substitution.
 //   2. Someone who isn't in the session at all wants a game or two - easing
 //      back from an injury, or just passing through. They come on in place of
 //      a scheduled player and are recorded as a guest of the session, so the
@@ -45,6 +48,7 @@ export default function RoundAdjustModal({
   laterSlots = [],
   outsideCandidates = [],
   onSubstitute,
+  onSwapPlayers,
   onSwapRounds,
   onAddGuest,
   busy = false,
@@ -55,13 +59,15 @@ export default function RoundAdjustModal({
 
   const name = (id) => playersById[id]?.name || id
 
-  // Everyone on court this round, tagged with the match they're in so the
-  // substitution knows which entry of the flat schedule to rewrite.
+  // Everyone on court this round, tagged with the match and team they're in so
+  // a substitution knows which entry of the flat schedule to rewrite, and a
+  // side switch knows who is actually on the other side.
   const onCourt = useMemo(() => {
     if (!slot) return []
-    return slot.matches.flatMap(({ index, match, court }) =>
-      [...match.team1, ...match.team2].map((id) => ({ id, matchIndex: index, court })),
-    )
+    return slot.matches.flatMap(({ index, match, court }) => [
+      ...match.team1.map((id) => ({ id, matchIndex: index, court, team: 1 })),
+      ...match.team2.map((id) => ({ id, matchIndex: index, court, team: 2 })),
+    ])
   }, [slot])
 
   // The bench is shared across the courts playing this round. Union the
@@ -76,6 +82,15 @@ export default function RoundAdjustModal({
   }, [slot, onCourt])
 
   const missing = missingId ? onCourt.find((p) => p.id === missingId) : null
+
+  // Anyone on court who isn't the selected player's partner: the other team in
+  // their match, plus everyone on the other court when the round has two.
+  const switchTargets = useMemo(() => {
+    if (!missing) return []
+    return onCourt.filter(
+      (p) => p.id !== missing.id && !(p.matchIndex === missing.matchIndex && p.team === missing.team),
+    )
+  }, [onCourt, missing])
 
   // Only rounds the missing player sits out are worth pulling forward - the
   // whole point is to give them time to arrive.
@@ -95,6 +110,12 @@ export default function RoundAdjustModal({
   const handleSubstitute = async (inId) => {
     if (!missing) return
     const ok = await onSubstitute(missing.matchIndex, missing.id, inId)
+    if (ok) close()
+  }
+
+  const handleSwitchSides = async (otherId) => {
+    if (!missing) return
+    const ok = await onSwapPlayers(missing.matchIndex, missing.id, otherId)
     if (ok) close()
   }
 
@@ -135,20 +156,20 @@ export default function RoundAdjustModal({
 
         {!missing ? (
           <>
-            <p className={SECTION}>Who is off court this round?</p>
+            <p className={SECTION}>Which player needs changing this round?</p>
             <div className="flex flex-col gap-1.5">
-              {onCourt.map(({ id, court }) => (
+              {onCourt.map(({ id, court, team }) => (
                 <PlayerButton
                   key={id}
                   id={id}
                   name={name(id)}
-                  subtitle={multiCourt ? `Court ${court}` : null}
+                  subtitle={multiCourt ? `Court ${court} · Team ${team}` : `Team ${team}`}
                   onClick={() => setMissingId(id)}
                 />
               ))}
             </div>
             <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3">
-              Pick whoever is missing — or whoever is giving up their spot to a drop-in player.
+              Pick whoever is missing, giving up their spot to a drop-in, or switching sides.
             </p>
           </>
         ) : (
@@ -156,7 +177,7 @@ export default function RoundAdjustModal({
             <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
               <Avatar id={missing.id} name={name(missing.id)} size="xs" />
               <span className="text-sm text-amber-800 dark:text-amber-300 flex-1 truncate">
-                {name(missing.id)} is off court
+                {name(missing.id)} selected
               </span>
               <button
                 onClick={() => setMissingId(null)}
@@ -166,7 +187,27 @@ export default function RoundAdjustModal({
               </button>
             </div>
 
-            <p className={SECTION}>Swap in someone resting</p>
+            {/* First, because it's the lightest change: nobody leaves the
+                court, the teams just get mixed up for this one match. */}
+            <p className={SECTION}>Switch sides with</p>
+            {switchTargets.length > 0 ? (
+              <div className="flex flex-col gap-1.5 mb-5">
+                {switchTargets.map(({ id, court, team }) => (
+                  <PlayerButton
+                    key={id}
+                    id={id}
+                    name={name(id)}
+                    subtitle={multiCourt ? `Court ${court} · Team ${team}` : `Team ${team}`}
+                    disabled={busy}
+                    onClick={() => handleSwitchSides(id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 dark:text-gray-500 mb-5">Nobody on the other side to switch with.</p>
+            )}
+
+            <p className={SECTION}>Or swap in someone resting</p>
             {benchIds.length > 0 ? (
               <div className="flex flex-col gap-1.5 mb-5">
                 {benchIds.map((id) => (

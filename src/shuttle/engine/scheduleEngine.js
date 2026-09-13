@@ -256,6 +256,44 @@ export function substituteInSchedule(schedule = [], matchIndex, outId, inId) {
 }
 
 /**
+ * Switch two players who are both on court in the same round - Imran & Aravind
+ * vs Hussain & Perumal becomes Hussain & Aravind vs Imran & Perumal. Works
+ * across courts too, when the round has two: the pair simply trade places.
+ *
+ * Unlike substituteInSchedule nobody comes on or goes off, so the bench is
+ * untouched and the caller records nothing in `substitutions` - that log is
+ * read as "who came in for whom", and a side switch isn't either. Two players
+ * already on the same team are refused (returns the schedule unchanged):
+ * trading places within a team changes nothing.
+ */
+export function swapPlayersInSlot(schedule = [], matchIndex, idA, idB) {
+  const target = schedule[matchIndex]
+  if (!target || !idA || !idB || idA === idB) return schedule
+  const slot = target.slot ?? matchIndex
+  const inSlot = (match, i) => (match.slot ?? i) === slot
+
+  const locate = (id) => {
+    for (let i = 0; i < schedule.length; i++) {
+      const match = schedule[i]
+      if (!inSlot(match, i)) continue
+      if (match.team1.includes(id)) return { i, team: 'team1' }
+      if (match.team2.includes(id)) return { i, team: 'team2' }
+    }
+    return null
+  }
+  const a = locate(idA)
+  const b = locate(idB)
+  if (!a || !b) return schedule
+  if (a.i === b.i && a.team === b.team) return schedule
+
+  const swap = (id) => (id === idA ? idB : id === idB ? idA : id)
+  return schedule.map((match, i) => {
+    if (i !== a.i && i !== b.i) return match
+    return { ...match, team1: match.team1.map(swap), team2: match.team2.map(swap) }
+  })
+}
+
+/**
  * Trade the running order of two slots — used when a player is still on the
  * way and a later round they aren't in can be pulled forward to buy time.
  *
@@ -667,6 +705,19 @@ function assignTargets(ids, totalPlayerSlots, totalSlots, matchCaps, rng) {
   return { targets, shortfall: Math.max(0, remaining) }
 }
 
+// How many of the group's pairs have partnered at least once, given a
+// pairKey -> count tally. Used both for the achievable-coverage ceiling and
+// for the coverage figure itself, so the two can't drift apart.
+function countCoveredPairs(ids, partnerCount = {}) {
+  let covered = 0
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      if ((partnerCount[pairKey(ids[i], ids[j])] || 0) > 0) covered++
+    }
+  }
+  return covered
+}
+
 function priorScheduleState(ids, priorSchedule = []) {
   const known = new Set(ids)
   const matchesPlayed = Object.fromEntries(ids.map((id) => [id, 0]))
@@ -717,6 +768,9 @@ function attemptSchedule(
   const totalSlots = courtsBySlot.length
   const totalMatches = courtsBySlot.reduce((sum, c) => sum + c, 0)
   const historical = priorScheduleState(ids, priorSchedule)
+  // Counted now, not at the end: `state.partnerCount` below is the very same
+  // object, and the slot loop mutates it as matches are drawn.
+  const priorCoveredPairs = countCoveredPairs(ids, historical.partnerCount)
   const { targets: addedTargets, shortfall } = assignTargets(ids, 4 * totalMatches, totalSlots, matchCaps, rng)
   const targetByPlayer = Object.fromEntries(ids.map((id) => [id, historical.matchesPlayed[id] + addedTargets[id]]))
   // A player's own limit, kept separate from their target: the target is what
@@ -838,10 +892,58 @@ function attemptSchedule(
     const duePairs = new Set()
     for (const [key, dueSlot] of outstandingPairs) if (slot >= dueSlot) duePairs.add(key)
 
+    // COVERAGE CHASE. Everyone partnering everyone at least once is the thing
+    // players actually notice, and the ordinary variety scoring can't promise
+    // it: it only ever ranks the splits of a foursome it was handed, so two
+    // people who are never on court together at the same time can go a whole
+    // session without partnering however much a new pairing is rewarded.
+    //
+    // So once the session is running out of room, pairs who have never
+    // partnered are chased exactly the way an explicit "must partner" rule is
+    // - put on court together, and paid the same bounty to actually be split
+    // onto the same side. Until then they're left alone, because forcing from
+    // round one would flatten the schedule into pair-ticking and throw away
+    // the rest/spacing quality that matters while there is still slack.
+    const uncoveredPairs = []
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const key = pairKey(ids[i], ids[j])
+        if ((state.partnerCount[key] || 0) > 0) continue
+        // A pair the user has forbidden, or whose allowance is zero, is not a
+        // gap in the coverage - it's a rule, and chasing it would never end.
+        if (partnerLimits?.get(key) === 0) continue
+        if (violatesForbidden([ids[i], ids[j]], [], playersById, partnerLimits, state)) continue
+        uncoveredPairs.push({ a: ids[i], b: ids[j], key })
+      }
+    }
+    let partnershipsLeft = 0
+    for (let s = slot; s < totalSlots; s++) partnershipsLeft += 2 * courtsBySlot[s]
+    // Half the remaining capacity: leaves enough slack that the chase starts
+    // early enough to finish, without taking over a session that is
+    // comfortably on track.
+    const chasing = uncoveredPairs.length > 0 && uncoveredPairs.length * 2 >= partnershipsLeft
+    // Most-stranded first: a player short of many partners has fewer ways left
+    // to fix it than one short of a single pairing. Shuffled before sorting so
+    // equally stranded pairs vary with the seed like everything else here.
+    let chaseOrder = []
+    if (chasing) {
+      const gapsPerPlayer = {}
+      for (const { a, b } of uncoveredPairs) {
+        gapsPerPlayer[a] = (gapsPerPlayer[a] || 0) + 1
+        gapsPerPlayer[b] = (gapsPerPlayer[b] || 0) + 1
+      }
+      chaseOrder = shuffle(uncoveredPairs, rng).sort(
+        (x, y) => gapsPerPlayer[y.a] + gapsPerPlayer[y.b] - (gapsPerPlayer[x.a] + gapsPerPlayer[x.b]),
+      )
+      for (const { key } of chaseOrder) duePairs.add(key)
+    }
+
     const forcedIds = new Set()
     if (duePairs.size) {
       const claimed = new Set()
-      for (const { a, b } of requiredPairs) {
+      // Pairs the user explicitly asked for are placed before chased ones -
+      // an explicit rule outranks the engine's own coverage goal.
+      for (const { a, b } of [...requiredPairs, ...chaseOrder]) {
         if (forcedIds.size >= needed) break
         if (!duePairs.has(pairKey(a, b))) continue
         if (mustRestSet.has(a) || mustRestSet.has(b)) continue // a rest rule or personal cap outranks this
@@ -968,10 +1070,55 @@ function attemptSchedule(
   // with a big group full pair coverage is arithmetically out of reach. Rank
   // against what's actually achievable so the "perfect result" early exit can
   // still fire (without this, every multi-court plan burns all 500 seeds).
-  const maxCoverageRatio = totalPairs ? Math.min(1, (2 * totalMatches) / totalPairs) : 1
+  //
+  // The ceiling has to count the pairs the PRIOR schedule already covered as
+  // well as the ones these matches can add. A mid-session redraw only replaces
+  // the rounds still to come, so measuring its ceiling off those rounds alone
+  // put it below the coverage the session had already reached - the early exit
+  // then fired on the very first seed, every time, and the redraw was never
+  // searched at all. See priorScheduleState.
+  const maxCoverageRatio = totalPairs
+    ? Math.min(1, (priorCoveredPairs + 2 * totalMatches) / totalPairs)
+    : 1
+  // Pairs that could have been put together and weren't. Rounding guards the
+  // ratio arithmetic; the term is monotonic in coveredPairs either way.
+  const missedPairs = Math.max(0, Math.round(maxCoverageRatio * totalPairs) - coveredPairs)
+  // Say so when the session had room for everyone to partner everyone and the
+  // draw still didn't manage it. Only when full coverage was actually on the
+  // table: on a big group in a short session most pairs are unreachable by
+  // arithmetic, and listing them all would be noise rather than a warning.
+  // This adds no search pressure - the early exit already tests the same
+  // shortfall - it just stops a missed pairing being silent.
+  if (maxCoverageRatio >= 1 && coveredPairs < totalPairs) {
+    const never = []
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        if (!(state.partnerCount[pairKey(ids[i], ids[j])] || 0)) never.push(`${nameOf(ids[i])} & ${nameOf(ids[j])}`)
+      }
+    }
+    if (never.length) {
+      warnings.push(
+        never.length === 1
+          ? `${never[0]} never partner each other.`
+          : `${never.length} pairs never partner each other: ${never.slice(0, 3).join(', ')}${never.length > 3 ? '...' : ''}`,
+      )
+    }
+  }
   // An unmet required pair dominates the fitness: a seed that honours the
   // user's explicit request beats a tidier one that ignores it, every time.
-  const fitness = coverageRatio * 1000 - warnings.length * 20 - spread * 50 - unmetRequired * 5000
+  //
+  // A pair nobody ever partners is weighted well above tidiness, because it is
+  // the one flaw players actually notice - "we never played together all
+  // night" - where a match-count spread of one is invisible. At 1000 points
+  // spread across every pair in the group, a single missing pair used to be
+  // worth less than the spread penalty, so a seed that covered everyone could
+  // lose to one that left two people apart.
+  const fitness =
+    coverageRatio * 1000 -
+    missedPairs * 400 -
+    warnings.length * 20 -
+    spread * 50 -
+    unmetRequired * 5000
 
   return {
     schedule,
