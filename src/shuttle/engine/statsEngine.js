@@ -816,29 +816,6 @@ export function mostDominant(statsById, playerIds, { minMatches = MIN_RANKED_MAT
   return leaderOf(rows, (r) => r.diff, (a, b) => b.matches - a.matches)
 }
 
-/** Most session MVP awards. Uses sessionAchievements so "MVP" means one thing app-wide. */
-export function mostMVPs(sessions, players) {
-  const counts = sessionAchievements(sessions, players)
-  const rows = players
-    .filter((p) => counts[p.id]?.mvpCount > 0)
-    .map((p) => ({ playerId: p.id, name: p.name, mvps: counts[p.id].mvpCount }))
-  return leaderOf(rows, (r) => r.mvps, (a, b) => a.name.localeCompare(b.name))
-}
-
-/**
- * Best attendance rate since joining (see attendanceRate). A minimum number of
- * eligible sessions, because someone who joined last week is 1-of-1 = 100%.
- */
-export function mostReliable(players, sessions, { minSessions = 4 } = {}) {
-  const rows = []
-  for (const p of players) {
-    const r = attendanceRate(p, sessions)
-    if (!r || r.eligible < minSessions) continue
-    rows.push({ playerId: p.id, name: p.name, rate: Math.round(r.rate * 100), attended: r.attended, eligible: r.eligible })
-  }
-  return leaderOf(rows, (r) => r.rate, (a, b) => b.attended - a.attended)
-}
-
 /**
  * Biggest win-rate rise: the last `days` against everything before. Both
  * windows need real samples - a rate off a handful of games swings 30 points

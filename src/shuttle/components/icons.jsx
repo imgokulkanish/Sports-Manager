@@ -96,26 +96,6 @@ export function TargetIcon({ className }) {
   )
 }
 
-export function StarIcon({ className }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-      <path
-        d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-export function CheckCircleIcon({ className }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="m8.3 12.3 2.5 2.5 5-5.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 export function TrendUpIcon({ className }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">

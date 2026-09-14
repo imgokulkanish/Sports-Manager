@@ -11,8 +11,6 @@ import {
   bestPartnership,
   hotStreak,
   mostDominant,
-  mostMVPs,
-  mostReliable,
   mostImproved,
   MIN_RANKED_MATCHES,
   MIN_RELIABLE_MATCHES,
@@ -31,8 +29,6 @@ import {
   FlameIcon,
   HandshakeIcon,
   TargetIcon,
-  StarIcon,
-  CheckCircleIcon,
   TrendUpIcon,
 } from '../components/icons'
 import { ListSkeleton, MetricGridSkeleton, ButtonRowSkeleton } from '../components/Skeleton'
@@ -151,8 +147,6 @@ export default function Dashboard() {
     return best && best.wins > 0 ? best : null
   }, [statsById, activeIds])
   const dominant = useMemo(() => mostDominant(statsById, activeIds), [statsById, activeIds])
-  const mvp = useMemo(() => mostMVPs(sessions, activePlayers), [sessions, activePlayers])
-  const reliable = useMemo(() => mostReliable(activePlayers, sessions), [activePlayers, sessions])
   const improved = useMemo(() => mostImproved(sessions, activePlayers), [sessions, activePlayers])
 
   // Sessions only - quick play has no schedule to continue and nothing to
@@ -170,9 +164,6 @@ export default function Dashboard() {
             <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Shuttle Manager</h1>
             <p className="text-xs text-gray-400 dark:text-gray-500">Weekly badminton sessions</p>
           </div>
-        </div>
-        <div className="mb-3">
-          <MetricGridSkeleton items={2} />
         </div>
         <div className="mb-5">
           <MetricGridSkeleton items={9} columns="grid-cols-2 md:grid-cols-3" />
@@ -216,7 +207,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-3">
+      {/* Nine cards: a clean 3x3 from md up. On a phone's two columns the last
+          one spans the row rather than leaving a hole beside it. */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
         <MetricCard
           label="Total sessions"
           value={completedSessions}
@@ -225,11 +218,6 @@ export default function Dashboard() {
           accent="gray"
         />
         <MetricCard label="Total players" value={totalPlayers} icon={PeopleIcon} accent="gray" />
-      </div>
-
-      {/* Nine highlights: a clean 3x3 from md up. On a phone's two columns the
-          ninth spans the row rather than leaving a hole beside it. */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
         <MetricCard
           label="Most active"
           value={mostActive?.name || '—'}
@@ -287,24 +275,6 @@ export default function Dashboard() {
               : `min ${MIN_RANKED_MATCHES} scored matches`
           }
           icon={TargetIcon}
-          accent="blue"
-        />
-        <MetricCard
-          label="Most MVPs"
-          value={mvp?.name || '—'}
-          sub={mvp ? withTie(plural(mvp.mvps, 'MVP award'), mvp.tied) : 'No MVP awarded yet'}
-          icon={StarIcon}
-          accent="brand"
-        />
-        <MetricCard
-          label="Most reliable"
-          value={reliable?.name || '—'}
-          sub={
-            reliable
-              ? withTie(`${reliable.attended} of ${plural(reliable.eligible, 'session')} (${reliable.rate}%)`, reliable.tied)
-              : 'min 4 sessions since joining'
-          }
-          icon={CheckCircleIcon}
           accent="blue"
         />
         <MetricCard
