@@ -13,9 +13,12 @@
 //     the caller hands it.
 //   - Everything else — the ranking (least spent, then fewest times paid,
 //     then longest ago, then name), the "one pool not per category" design,
-//     the null-amount-still-counts-as-a-turn rule — is UNCHANGED. Pooling
+//     the null-amount-still-counts-as-a-turn rule — was UNCHANGED. Pooling
 //     across sports doesn't need new ranking logic, only a different
 //     grouping key upstream.
+//   - ADDED SINCE: a recent-big-payment cooldown sits ABOVE that ranking —
+//     see the block above BIG_PAYMENT_AMOUNT for what it does and why it
+//     deprioritises rather than excludes.
 //
 // GRACEFUL DEGRADATION WITHOUT playerLinks: if the caller hasn't built
 // playerLinks yet (or a given player isn't linked), it should hand this
@@ -46,6 +49,41 @@ export function windowStart(months = SPEND_WINDOW_MONTHS, from = new Date()) {
   return d
 }
 
+// THE RECENT-BIG-PAYMENT COOLDOWN.
+//
+// The two-month pot on its own has a blind spot: someone who fronted a
+// single heavy bill a few days ago can still sit at the top of the rotation
+// purely because that is the only time they have ever paid, while people
+// who chip in small amounts every week sit below them. Asking that person
+// again this week is the exact thing the rotation exists to prevent, even
+// though the two-month arithmetic says they owe the most.
+//
+// So: one entry over BIG_PAYMENT_AMOUNT inside the last
+// BIG_PAYMENT_WINDOW_DAYS sends a person to the BACK of the order rather
+// than out of it. Deprioritise, don't exclude — with a hard skip, an
+// evening where everyone happened to front something big would leave the
+// card with nobody to name at all. Sorted last, the rotation always still
+// has an answer, and it degrades to plain lowest-spend order the moment
+// nobody is inside the cooldown.
+//
+// It is a SINGLE entry's amount that counts, not the two-week total:
+// "fronted more than 80 in one go recently" is what earns a rest, while
+// four 25s over two weeks is exactly the steady chipping-in the rotation
+// is meant to keep rewarding.
+
+/** A single entry above this (SAR) counts as having fronted a big one. */
+export const BIG_PAYMENT_AMOUNT = 80
+
+/** How recently that big entry has to be to still count. */
+export const BIG_PAYMENT_WINDOW_DAYS = 14
+
+/** Start of the cooldown window: `days` before now. */
+export function cooldownStart(days = BIG_PAYMENT_WINDOW_DAYS, from = new Date()) {
+  const d = new Date(from)
+  d.setDate(d.getDate() - days)
+  return d
+}
+
 function inWindow(expenses, months) {
   const cutoff = windowStart(months).getTime()
   // `personId` replaces the original's implicit reliance on `paidBy` being
@@ -62,22 +100,37 @@ function inWindow(expenses, months) {
  * including those who have paid nothing - they are exactly who the
  * suggestion needs to surface.
  *
- * Returns [{ personId, name, timesPaid, totalAmount, lastPaidDate }],
- * ordered most-due first (least spent).
+ * Returns [{ personId, name, timesPaid, totalAmount, lastPaidDate,
+ * recentBig, onCooldown }], ordered most-due first — cooled-down people
+ * last, then least spent.
  */
-export function buildSpendSummary(expenses, people, { months = SPEND_WINDOW_MONTHS } = {}) {
+export function buildSpendSummary(
+  expenses,
+  people,
+  { months = SPEND_WINDOW_MONTHS, bigAmount = BIG_PAYMENT_AMOUNT, bigWindowDays = BIG_PAYMENT_WINDOW_DAYS } = {},
+) {
   const active = (people || []).filter((p) => p.isActive)
   const scoped = inWindow(expenses, months)
+  // The cooldown window sits inside the spend window, so `scoped` already
+  // holds every entry that could qualify — no second pass over the raw list.
+  const bigCutoff = cooldownStart(bigWindowDays).getTime()
 
   return active
     .map((person) => {
       const theirs = scoped.filter((e) => (e.personId || e.paidBy) === person.id)
+      // The biggest qualifying entry, not the latest one: if someone fronted
+      // a 200 and then a 90, the 200 is what the board should name.
+      const big = theirs
+        .filter((e) => Number(e.amount) > bigAmount && toTime(e.date) >= bigCutoff)
+        .reduce((best, e) => (!best || Number(e.amount) > Number(best.amount) ? e : best), null)
       return {
         personId: person.id,
         name: person.name,
         timesPaid: theirs.length,
         totalAmount: theirs.reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
         lastPaidDate: theirs.reduce((latest, e) => (toTime(e.date) > toTime(latest) ? e.date : latest), null),
+        recentBig: big ? { amount: Number(big.amount), date: big.date } : null,
+        onCooldown: Boolean(big),
       }
     })
     .sort(compareByDueness)
@@ -85,6 +138,12 @@ export function buildSpendSummary(expenses, people, { months = SPEND_WINDOW_MONT
 
 /** Least contribution first. Every term is a per-row value, so this is a total order. */
 function compareByDueness(a, b) {
+  // Ahead of the money, deliberately: whoever fronted a big one in the last
+  // couple of weeks goes to the back whatever the two-month total says.
+  // Everything below is the original ranking, now applied WITHIN each group
+  // — so the cooled-down people are still ordered sensibly among themselves
+  // for the evening when every single person is inside the cooldown.
+  if (a.onCooldown !== b.onCooldown) return a.onCooldown ? 1 : -1
   if (a.totalAmount !== b.totalAmount) return a.totalAmount - b.totalAmount
   if (a.timesPaid !== b.timesPaid) return a.timesPaid - b.timesPaid
   const byDate = toTime(a.lastPaidDate) - toTime(b.lastPaidDate) // longest ago first
@@ -98,11 +157,24 @@ function compareByDueness(a, b) {
  * specific people for one evening's UI state without touching anyone's
  * standing.
  */
-export function suggestNextPayer(expenses, people, { months = SPEND_WINDOW_MONTHS, exclude = [] } = {}) {
+export function suggestNextPayer(
+  expenses,
+  people,
+  {
+    months = SPEND_WINDOW_MONTHS,
+    exclude = [],
+    bigAmount = BIG_PAYMENT_AMOUNT,
+    bigWindowDays = BIG_PAYMENT_WINDOW_DAYS,
+  } = {},
+) {
   const scoped = inWindow(expenses, months)
   if (!scoped.length) return null
 
-  const summary = buildSpendSummary(expenses, people, { months })
+  // No cooldown filtering of its own: compareByDueness has already put
+  // anyone who fronted a big one recently at the back, so taking the first
+  // un-excluded row honours the cooldown AND still names someone on the
+  // night when everybody is inside it.
+  const summary = buildSpendSummary(expenses, people, { months, bigAmount, bigWindowDays })
   const skip = new Set(exclude)
   const rank = summary.findIndex((row) => !skip.has(row.personId))
   if (rank === -1) return null
@@ -112,12 +184,20 @@ export function suggestNextPayer(expenses, people, { months = SPEND_WINDOW_MONTH
     personId: pick.personId,
     totalAmount: pick.totalAmount,
     rank: rank + 1,
+    recentBig: pick.recentBig,
+    onCooldown: pick.onCooldown,
     reason: reasonFor(pick, months),
   }
 }
 
 function reasonFor(row, months) {
   const window = `${months} month${months === 1 ? '' : 's'}`
+  // Only reachable when EVERY candidate is inside the cooldown, so say that
+  // plainly rather than quoting a lowest-spend figure that would read as if
+  // the rule had been ignored.
+  if (row.onCooldown) {
+    return `everyone's fronted a big one lately — lowest spend: SAR ${row.totalAmount.toFixed(2)} in ${window}`
+  }
   if (row.timesPaid === 0) return `hasn't paid in the last ${window}`
   if (row.totalAmount === 0) {
     return `paid ${row.timesPaid} time${row.timesPaid === 1 ? '' : 's'}, no amounts recorded`

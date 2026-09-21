@@ -28,6 +28,8 @@ import {
   lastAmountFor,
   monthlySummary,
   SPEND_WINDOW_MONTHS,
+  BIG_PAYMENT_AMOUNT,
+  BIG_PAYMENT_WINDOW_DAYS,
 } from '../lib/expenseEngine'
 import { useShellStore, SPORTS } from '../store/useShellStore'
 import Avatar from '../components/Avatar'
@@ -42,6 +44,12 @@ const INPUT =
 const LABEL = 'text-xs text-gray-500 dark:text-gray-400'
 const CARD = 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg'
 const WINDOW = `${SPEND_WINDOW_MONTHS} month${SPEND_WINDOW_MONTHS === 1 ? '' : 's'}`
+// 14 days reads better as "2 weeks" on a card; fall back to days if the
+// engine's constant is ever set to something that isn't whole weeks.
+const COOLDOWN_WINDOW =
+  BIG_PAYMENT_WINDOW_DAYS % 7 === 0
+    ? `${BIG_PAYMENT_WINDOW_DAYS / 7} week${BIG_PAYMENT_WINDOW_DAYS === 7 ? '' : 's'}`
+    : `${BIG_PAYMENT_WINDOW_DAYS} days`
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -368,7 +376,9 @@ export default function ExpensesShared() {
     <div className="max-w-3xl mx-auto p-4 pb-24 md:pb-8">
       <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Expenses</h1>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-        Badminton and cricket spending share one pot. Whoever has put in least over the last {WINDOW} is up next.
+        Badminton and cricket spending share one pot. Whoever has put in least over the last {WINDOW} is up next —
+        unless they fronted over {money(BIG_PAYMENT_AMOUNT)} in one go in the last {COOLDOWN_WINDOW}, which moves them
+        to the back of the line.
       </p>
 
       {expensesError && (
@@ -558,6 +568,14 @@ export default function ExpensesShared() {
             <span className="text-sm text-gray-900 dark:text-gray-100 flex-1 truncate">
               {row.name}
               {absent.includes(row.personId) && <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1.5">not here</span>}
+              {/* Without this the board looks broken: someone with the
+                  lowest total in the list sitting at the bottom of it needs
+                  to say why. */}
+              {row.onCooldown && (
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1.5 whitespace-nowrap">
+                  just fronted {money(row.recentBig.amount)}
+                </span>
+              )}
             </span>
             <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{sinceLabel(row.lastPaidDate)}</span>
             <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0 w-8 text-right">{row.timesPaid}×</span>

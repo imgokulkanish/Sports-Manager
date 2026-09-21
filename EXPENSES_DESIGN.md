@@ -173,3 +173,48 @@ Editing the list is admin-gated (same PIN as the deletes) because it changes
 who gets asked to pay. Reading it isn't. If the rules block above hasn't been
 deployed the read fails closed to an empty set — everyone is counted, which is
 the old behavior — and the page says so rather than looking broken.
+
+## The recent-big-payment cooldown
+
+The two-month pot had a blind spot the joint-pot maths can't see past: a
+person whose *only* payment is a single heavy bill from three days ago still
+ranks above everyone who chips in small amounts every week, because
+`totalAmount` is all the ranking looks at. Shameem sat top of "next up" on
+SAR 97.00 / 1× / 3d ago while people on two months of steady 25s sat below
+him — technically correct, obviously wrong to act on.
+
+**The rule.** One entry over `BIG_PAYMENT_AMOUNT` (80) inside the last
+`BIG_PAYMENT_WINDOW_DAYS` (14) moves a person to the back of the rotation.
+Both constants live in `expenseEngine.js` and are overridable per call
+(`bigAmount` / `bigWindowDays`), the same way `months` already was.
+
+**A single entry, not the two-week total.** "Fronted more than 80 in one go"
+is what earns a rest; four 25s over a fortnight is exactly the steady
+chipping-in the rotation should keep rewarding, so it doesn't trigger.
+Strictly greater than, so an 80.00 court booking is not a big one.
+
+**Deprioritise, don't exclude.** The cooldown is a new first term in
+`compareByDueness`, ahead of the money — *not* a filter in
+`suggestNextPayer`. Three things fall out of that which a hard skip wouldn't
+give you:
+
+- An evening where everyone happened to front something big still produces a
+  name instead of an empty card. The ranking inside the cooled-down group is
+  the original one, so it's the right name.
+- `suggestion.rank` ("4th in line") and the board's row numbers stay the same
+  ordering, so the card and the board can't contradict each other.
+- It degrades to plain lowest-spend order the moment nobody is inside the
+  window — no state, no flag, nothing to reset.
+
+**Why it's separate from `expenseOptOuts`.** Opt-outs are a standing
+decision someone makes ("this person doesn't chip in"); the cooldown is
+transient and derived purely from the expense rows. It needs no collection,
+no rules change, no admin gate, and it expires by itself 14 days after the
+payment.
+
+**Surfaced, not silent.** `buildSpendSummary` returns `onCooldown` and
+`recentBig { amount, date }` per row, and the board tags those rows *"just
+fronted SAR 97.00"* — a low total sitting at the bottom of the list has to
+explain itself or the board reads as broken. When every candidate is inside
+the cooldown, `reason` says so outright rather than quoting a lowest-spend
+figure that would look like the rule was ignored.
