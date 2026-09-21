@@ -3,7 +3,17 @@ import React, { useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useSession } from '../hooks/useSession'
 import { usePlayers } from '../hooks/usePlayers'
-import { groupBySlot, pendingSlots } from '../engine/scheduleEngine'
+import {
+  groupBySlot,
+  orderedMatches,
+  pendingSlots,
+  isTwoVsOneMatch,
+  matchFormatLabel,
+  resolveOnCourt,
+  startedMatches,
+  queuedSlots,
+  playedCourt,
+} from '../engine/scheduleEngine'
 import {
   sessionLeaderboard,
   deciderCandidates,
@@ -13,6 +23,7 @@ import {
 } from '../engine/statsEngine'
 import { useAdmin } from '../../shell/components/Admin'
 import RoundCard from '../components/RoundCard'
+import Avatar from '../components/Avatar'
 import UpNextList from '../components/UpNextList'
 import RecentResults from '../components/RecentResults'
 import Leaderboard from '../components/Leaderboard'
@@ -34,7 +45,7 @@ export default function LiveSession() {
     undoLastScore,
     substitutePlayer,
     swapPlayers,
-    swapRounds,
+    playOnCourt,
     moveRound,
     addPlayerAndRedraw,
     addExtraRound,
@@ -62,58 +73,104 @@ export default function LiveSession() {
   const scores = session?.scores || {}
   const schedule = session?.schedule || []
   const winningScore = session?.winningScore === 11 ? 11 : 21
+  // 2 vs 1 handicap: the one-player side of a 2 vs 1 wins on reaching this.
+  // Sessions without the setting play every match to the normal score.
+  const soloTarget = session?.soloTarget > 0 && session.soloTarget < winningScore ? session.soloTarget : winningScore
+  const sideTarget = (match, team) =>
+    isTwoVsOneMatch(match) && match[team].length === 1 ? soloTarget : winningScore
 
-  // A "round" on screen is a time slot, which holds one match per court booked
-  // for it. Single-court sessions (and every session created before second-court
-  // support) give exactly one match per slot, so this reads as it always did.
+  // The schedule is planned in time slots ("rounds"), one match per court
+  // booked for the slot. Play doesn't wait for a whole round, though: each
+  // court runs as a queue and takes the next match its players are free for
+  // as soon as it is done (see resolveOnCourt).
   const slots = useMemo(() => groupBySlot(schedule), [schedule])
   const totalRounds = slots.length
+  const roundOf = useMemo(() => {
+    const bySlot = new Map(slots.map((s, i) => [s.slot, i + 1]))
+    return (index) => bySlot.get(schedule[index]?.slot ?? index)
+  }, [slots, schedule])
 
-  // The slot we're on is the first with any match still unscored - two courts
-  // rarely finish together, so a slot stays current until both are in.
-  const currentSlotIndex = useMemo(() => {
-    for (let i = 0; i < slots.length; i++) {
-      if (slots[i].matches.some(({ index }) => !scores[index])) return i
-    }
-    return slots.length
-  }, [slots, scores])
+  const onCourt = useMemo(
+    () => resolveOnCourt(schedule, scores, session?.onCourt || {}),
+    [schedule, scores, session?.onCourt],
+  )
+  const courts = useMemo(() => Object.keys(onCourt).map(Number).sort((a, b) => a - b), [onCourt])
+  const isMultiCourt = courts.length > 1
+  const liveIndices = useMemo(() => courts.map((c) => onCourt[c]).filter(Number.isInteger), [courts, onCourt])
+  const busyIds = useMemo(
+    () => new Set(liveIndices.flatMap((i) => [...schedule[i].team1, ...schedule[i].team2])),
+    [liveIndices, schedule],
+  )
 
-  const isFinished = currentSlotIndex >= totalRounds
-  const roundsPlayed = Math.min(currentSlotIndex, totalRounds)
-  const currentSlot = slots[currentSlotIndex]
-  const isMultiCourt = useMemo(() => slots.some((s) => s.matches.length > 1), [slots])
+  const totalMatches = schedule.length
+  const matchesPlayed = useMemo(() => schedule.filter((_, i) => scores[i]).length, [schedule, scores])
+  const isFinished = matchesPlayed >= totalMatches
 
+  // The most recent result, whichever court it came from. Courts no longer
+  // finish in schedule order, so it's read off when the result was entered;
+  // older entries without a time fall back to the highest index.
   const lastScoredIndex = useMemo(() => {
-    const scored = Object.keys(scores).map(Number).filter((i) => !Number.isNaN(i))
-    return scored.length ? Math.max(...scored) : -1
+    let best = -1
+    let bestAt = -1
+    Object.keys(scores).forEach((key) => {
+      const i = Number(key)
+      if (Number.isNaN(i) || !scores[key]) return
+      const at = scores[key].at || 0
+      if (at > bestAt || (at === bestAt && i > best)) {
+        best = i
+        bestAt = at
+      }
+    })
+    return best
   }, [scores])
 
-  // Rounds already finished, newest first. Stops short of the round on court:
-  // a two-court slot with one result in shows that result above as its own
-  // card, and listing it here as well would read as two different games.
+  // Every result so far, newest first.
   const recentResults = useMemo(() => {
-    const rows = []
-    for (let i = 0; i < Math.min(currentSlotIndex, slots.length); i++) {
-      for (const { index, match, court } of slots[i].matches) {
-        if (!scores[index]) continue
-        rows.push({ index, match, court, scored: scores[index], roundNumber: i + 1 })
-      }
-    }
-    return rows.reverse()
-  }, [slots, scores, currentSlotIndex])
+    const position = new Map(orderedMatches(schedule).map(({ index }, i) => [index, i]))
+    return schedule
+      .map((match, index) => ({ index, match, scored: scores[index] }))
+      .filter((row) => row.scored)
+      .sort((a, b) => (b.scored.at || 0) - (a.scored.at || 0) || position.get(b.index) - position.get(a.index))
+      .map((row) => ({
+        ...row,
+        court: playedCourt(schedule, row.index, row.scored),
+        roundNumber: roundOf(row.index),
+      }))
+  }, [schedule, scores, roundOf])
+
+  // Rounds still to come, cut down to the matches not yet played or on court.
+  // Dragging one reorders the queue the free courts draw from.
+  const laterSlots = useMemo(() => queuedSlots(schedule, scores, onCourt), [schedule, scores, onCourt])
+  const laterMatches = useMemo(
+    () => laterSlots.flatMap(({ matches, roundNumber }) => matches.map((m) => ({ ...m, roundNumber }))),
+    [laterSlots],
+  )
+  // The match a free court is holding out for, and who it's waiting on.
+  const nextQueued = laterMatches[0] || null
+  const waitingOn = useMemo(
+    () => (nextQueued ? [...nextQueued.match.team1, ...nextQueued.match.team2].filter((id) => busyIds.has(id)) : []),
+    [nextQueued, busyIds],
+  )
+
+  // Who is off court right now - members only; a guest is only here for the
+  // match they were brought in for.
+  const benchIds = useMemo(
+    () => (session?.playerIds || []).filter((id) => !busyIds.has(id)),
+    [session?.playerIds, busyIds],
+  )
+  const liveSlot = useMemo(
+    () => ({
+      matches: courts
+        .filter((c) => Number.isInteger(onCourt[c]))
+        .map((c) => ({ index: onCourt[c], match: schedule[onCourt[c]], court: c })),
+    }),
+    [courts, onCourt, schedule],
+  )
 
   // Matches each player still has ahead of them, for the leaderboard's "left"
   // figure. Read off the schedule itself, so a substitution or a late addition
   // moves it the way the rounds actually moved.
   const matchesLeft = useMemo(() => remainingMatchCounts(session), [session])
-
-  // Every round after this one. It feeds both the draggable "Up next" list and
-  // the "play a later round now" swap: the whole remaining evening is listed,
-  // not a five-round window, so the group can see who is sitting out late on
-  // and drag a round the whole way up rather than one window at a time. All of
-  // them are unscored by definition - currentSlotIndex is the first with any
-  // match still open - so reordering them can't disturb a recorded result.
-  const laterSlots = useMemo(() => slots.slice(currentSlotIndex + 1), [slots, currentSlotIndex])
 
   // Who can be called in from outside: any active player who isn't in the
   // session. Guests already substituted in stay on the list so they can be
@@ -126,12 +183,12 @@ export default function LiveSession() {
       .map((p) => ({ id: p.id, name: p.name, guest: guests.has(p.id) }))
   }, [players, session])
 
-  // Rounds that can still be redrawn around a late arrival: everything from
-  // the first round with no result in it yet.
+  // Rounds that can still be redrawn around a late arrival: every round with
+  // nothing in it played or started.
   const pendingRoundCount = useMemo(() => {
-    const pending = pendingSlots(schedule, scores)
+    const pending = pendingSlots(schedule, scores, startedMatches(schedule, scores, session?.onCourt))
     return pending ? pending.courtsBySlot.length : 0
-  }, [schedule, scores])
+  }, [schedule, scores, session?.onCourt])
 
   // Same tally the finished session and the PDF use, so a drop-in guest is
   // ranked (and marked) identically here and everywhere afterwards.
@@ -177,8 +234,8 @@ export default function LiveSession() {
     }
   }
 
-  // Undoes the most recent result, whichever court it came from. On a
-  // two-court round that means tapping twice to reopen the whole round.
+  // Undoes the most recent result, whichever court it came from, and puts
+  // that match back on its court.
   const handleUndo = async () => {
     if (lastScoredIndex < 0) return
     await undoLastScore(lastScoredIndex)
@@ -227,12 +284,12 @@ export default function LiveSession() {
     try {
       const done = await substitutePlayer(matchIndex, outId, inId)
       if (!done) {
-        showToast('That player is already on court this round', 'error')
+        showToast('That player is already on court', 'error')
         return false
       }
       const outName = playersById[outId]?.name || outId
       const inName = playersById[inId]?.name || inId
-      showToast(`${inName} is in for ${outName} this round`)
+      showToast(`${inName} is in for ${outName} this match`)
       return true
     } catch {
       showToast('Saved locally — will sync when back online', 'info')
@@ -260,11 +317,21 @@ export default function LiveSession() {
     }
   }
 
-  const handleSwapRounds = async (targetSlot) => {
+  // Put a different match on a court: the one due there is short a player, or
+  // the court has played its booked matches and the group wants to carry on.
+  const handlePlayOnCourt = async (court, matchIndex) => {
     setAdjustBusy(true)
     try {
-      await swapRounds(currentSlot.slot, targetSlot)
-      showToast(`Round ${targetSlot + 1} moved up — the other one comes later`)
+      const done = await playOnCourt(court, matchIndex)
+      if (!done) {
+        showToast('Someone in that match is already on court', 'error')
+        return false
+      }
+      showToast(
+        isMultiCourt
+          ? `Court ${court} is playing the round ${roundOf(matchIndex)} match now`
+          : `Round ${roundOf(matchIndex)} moved up — the other match comes later`,
+      )
       return true
     } catch {
       showToast('Saved locally — will sync when back online', 'info')
@@ -274,8 +341,8 @@ export default function LiveSession() {
     }
   }
 
-  // Drag-to-reorder from the "Up next" list. Every round in it is unscored -
-  // it starts after the one on court - so there is no result to strand.
+  // Drag-to-reorder from the "Up next" list. Results and on-court matches are
+  // keyed by index, so moving a round can't strand either.
   // Locked while the write is in flight: the list is drawn from `session`, so
   // a second drag before the new order comes back would be computed against
   // the old one.
@@ -360,13 +427,13 @@ export default function LiveSession() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto p-4 pb-24 md:pb-8 md:grid md:grid-cols-[1fr_280px] md:gap-6">
+    <div className={`${isMultiCourt ? 'max-w-5xl 2xl:max-w-7xl' : 'max-w-5xl'} mx-auto p-4 pb-24 md:pb-8 md:grid md:grid-cols-[1fr_280px] md:gap-6`}>
       <div>
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Live Session</h1>
           {lastScoredIndex >= 0 && !isFinished && (
             <button onClick={handleUndo} className="text-xs text-gray-500 dark:text-gray-400 underline hover:text-gray-700 dark:hover:text-gray-200">
-              Previous Round
+              Undo last result
             </button>
           )}
         </div>
@@ -374,59 +441,87 @@ export default function LiveSession() {
         <div className="h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full mb-4 overflow-hidden">
           <div
             className="h-full bg-brand rounded-full transition-all"
-            style={{ width: `${(roundsPlayed / Math.max(1, totalRounds)) * 100}%` }}
+            style={{ width: `${(matchesPlayed / Math.max(1, totalMatches)) * 100}%` }}
           />
         </div>
 
         {!isFinished ? (
           <div className="flex flex-col gap-3">
-            {currentSlot.matches.map(({ index, match, court }) => {
-              const scored = scores[index]
-              if (scored) {
-                // The other court is still playing. Keep this one visible as a
-                // result so the umpire can see it landed (and undo a mis-tap).
-                const winners = (scored.winner === 1 ? match.team1 : match.team2)
-                  .map((pid) => playersById[pid]?.name || pid)
-                  .join(' & ')
-                return (
-                  <div
-                    key={index}
-                    className="bg-brand-light dark:bg-brand/15 border border-brand-border dark:border-brand/30 rounded-xl px-4 py-3 flex items-center gap-3"
-                  >
-                    <span className="text-lg">✅</span>
-                    <div className="flex-1 min-w-0">
-                      {isMultiCourt && (
-                        <p className="text-[11px] font-medium text-green-700 dark:text-green-400/80">Court {court}</p>
-                      )}
-                      <p className="text-sm font-medium text-green-800 dark:text-green-300 truncate">
-                        {winners} won
-                        {scored.points ? ` (${scored.points.team1}-${scored.points.team2})` : ''}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => undoLastScore(index)}
-                      className="text-xs text-green-700 dark:text-green-400 underline shrink-0 hover:text-green-900 dark:hover:text-green-200"
+            {/* Side by side once there is room for two score pads; stacked on a
+                phone. The bench is shared, so it's listed once under both. */}
+            <div className={isMultiCourt ? 'grid gap-4 2xl:grid-cols-2 items-start' : 'flex flex-col gap-3'}>
+              {courts.map((court) => {
+                const index = onCourt[court]
+                if (!Number.isInteger(index)) {
+                  // Nothing left for this court, or nothing it may start yet.
+                  if (!nextQueued) return null
+                  const blocked = waitingOn.length > 0
+                  return (
+                    <div
+                      key={`court-${court}`}
+                      className="bg-gray-50 dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 rounded-xl px-4 py-3"
                     >
-                      Undo
-                    </button>
-                  </div>
+                      <p className="text-base font-semibold text-gray-700 dark:text-gray-300">Court {court} is free</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        {blocked
+                          ? `Next match waits for ${waitingOn.map((id) => playersById[id]?.name || id).join(' & ')} to finish`
+                          : 'Its booked matches are done'}
+                      </p>
+                      {!blocked && (
+                        <button
+                          type="button"
+                          disabled={adjustBusy}
+                          onClick={() => handlePlayOnCourt(court, nextQueued.index)}
+                          className="text-xs text-brand dark:text-emerald-400 underline mt-1 disabled:opacity-50"
+                        >
+                          Play the next match here anyway
+                        </button>
+                      )}
+                    </div>
+                  )
+                }
+                const match = schedule[index]
+                const round = roundOf(index)
+                // Pulled forward past a match from an earlier round that is
+                // still waiting on someone - worth saying, or the round
+                // numbers on the two courts look like a mistake.
+                const early = laterMatches.some((m) => m.roundNumber < round)
+                return (
+                  <RoundCard
+                    key={index}
+                    court={isMultiCourt ? court : null}
+                    note={isMultiCourt && early ? 'Started early' : null}
+                    roundNumber={round}
+                    totalRounds={totalRounds}
+                    courtLabel={matchFormatLabel(match)}
+                    team1Players={match.team1.map((pid) => ({ id: pid, name: playersById[pid]?.name || pid }))}
+                    team2Players={match.team2.map((pid) => ({ id: pid, name: playersById[pid]?.name || pid }))}
+                    restingPlayers={
+                      isMultiCourt ? [] : benchIds.map((pid) => ({ id: pid, name: playersById[pid]?.name || pid }))
+                    }
+                    onWin={(team, points) => handleWin(index, team, points)}
+                    disabled={savingIndex === index}
+                    targetScore={winningScore}
+                    team1Target={sideTarget(match, 'team1')}
+                    team2Target={sideTarget(match, 'team2')}
+                  />
                 )
-              }
-              return (
-                <RoundCard
-                  key={index}
-                  roundNumber={currentSlotIndex + 1}
-                  totalRounds={totalRounds}
-                  courtLabel={isMultiCourt ? `Court ${court}` : null}
-                  team1Players={match.team1.map((pid) => ({ id: pid, name: playersById[pid]?.name || pid }))}
-                  team2Players={match.team2.map((pid) => ({ id: pid, name: playersById[pid]?.name || pid }))}
-                  restingPlayers={match.resting.map((pid) => ({ id: pid, name: playersById[pid]?.name || pid }))}
-                  onWin={(team, points) => handleWin(index, team, points)}
-                  disabled={savingIndex === index}
-                  targetScore={winningScore}
-                />
-              )
-            })}
+              })}
+            </div>
+
+            {isMultiCourt && benchIds.length > 0 && (
+              <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg px-3 py-2">
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-1">Resting</p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {benchIds.map((pid) => (
+                    <span key={pid} className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
+                      <Avatar id={pid} name={playersById[pid]?.name || pid} size="xs" />
+                      {playersById[pid]?.name || pid}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Somebody stuck in traffic, or a drop-in wanting a game - both
                 are fixed here rather than by regenerating the schedule. */}
@@ -436,7 +531,7 @@ export default function LiveSession() {
                 onClick={() => setAdjusting(true)}
                 className="text-xs text-gray-500 dark:text-gray-400 underline hover:text-gray-700 dark:hover:text-gray-200"
               >
-                Player missing or switching sides? Adjust this round
+                Player missing or switching sides? Adjust {isMultiCourt ? 'these matches' : 'this match'}
               </button>
               {pendingRoundCount > 0 && (
                 <button
@@ -455,16 +550,20 @@ export default function LiveSession() {
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
                     Up next{' '}
                     <span className="font-normal text-gray-400 dark:text-gray-500">
-                      ({laterSlots.length} round{laterSlots.length === 1 ? '' : 's'} left)
+                      ({laterMatches.length} match{laterMatches.length === 1 ? '' : 'es'} left)
                     </span>
                   </p>
                   {laterSlots.length > 1 && (
                     <p className="text-[10px] text-gray-400 dark:text-gray-500">Drag to reorder</p>
                   )}
                 </div>
+                {isMultiCourt && (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 -mt-1 mb-2">
+                    A free court takes the first match whose players are all off court.
+                  </p>
+                )}
                 <UpNextList
                   rows={laterSlots}
-                  startNumber={currentSlotIndex + 2}
                   isMultiCourt={isMultiCourt}
                   playersById={playersById}
                   onMove={handleMoveRound}
@@ -475,12 +574,12 @@ export default function LiveSession() {
 
             <RecentResults rows={recentResults} isMultiCourt={isMultiCourt} playersById={playersById} />
 
-            {roundsPlayed > 0 && (
+            {matchesPlayed > 0 && (
               <button
                 onClick={() => setConfirmComplete(true)}
                 className="text-xs text-gray-400 dark:text-gray-500 underline text-center hover:text-gray-600 dark:hover:text-gray-300"
               >
-                End session now ({roundsPlayed} of {totalRounds} rounds played)
+                End session now ({matchesPlayed} of {totalMatches} matches played)
               </button>
             )}
 
@@ -567,7 +666,7 @@ export default function LiveSession() {
               onClick={handleUndo}
               className="border border-gray-300 dark:border-gray-700 rounded-lg py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-gray-800"
             >
-              Previous Round
+              Undo last result
             </button>
             <button
               onClick={() => setConfirmComplete(true)}
@@ -613,16 +712,15 @@ export default function LiveSession() {
       <RoundAdjustModal
         open={adjusting && !isFinished}
         onClose={() => setAdjusting(false)}
-        roundNumber={currentSlotIndex + 1}
-        totalRounds={totalRounds}
-        slot={currentSlot}
+        slot={liveSlot.matches.length ? liveSlot : null}
         multiCourt={isMultiCourt}
         playersById={playersById}
-        laterSlots={laterSlots}
+        benchIds={benchIds}
+        laterMatches={laterMatches}
         outsideCandidates={outsideCandidates}
         onSubstitute={handleSubstitute}
         onSwapPlayers={handleSwapPlayers}
-        onSwapRounds={handleSwapRounds}
+        onPlayInstead={handlePlayOnCourt}
         onAddGuest={handleAddGuest}
         busy={adjustBusy}
       />
@@ -633,8 +731,8 @@ export default function LiveSession() {
         message={
           isFinished
             ? 'This finalizes the scores and updates player stats.'
-            : `${roundsPlayed} of ${totalRounds} rounds have been played. Stats will be saved for those rounds — the remaining ${
-                totalRounds - roundsPlayed
+            : `${matchesPlayed} of ${totalMatches} matches have been played. Stats will be saved for those matches — the remaining ${
+                totalMatches - matchesPlayed
               } will be dropped. This can't be undone.`
         }
         confirmLabel={isFinished ? 'Complete' : 'End Session'}
@@ -646,9 +744,9 @@ export default function LiveSession() {
         open={confirmDelete}
         title="Discard this session?"
         message={
-          roundsPlayed > 0
-            ? `This permanently deletes the session along with the ${roundsPlayed} round${
-                roundsPlayed > 1 ? 's' : ''
+          matchesPlayed > 0
+            ? `This permanently deletes the session along with the ${matchesPlayed} match${
+                matchesPlayed > 1 ? 'es' : ''
               } already scored. Nothing is kept and player stats won't count any of it. This can't be undone.`
             : "This permanently deletes the session and its schedule. Nothing is kept. This can't be undone."
         }

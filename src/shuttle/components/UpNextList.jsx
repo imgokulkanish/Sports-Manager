@@ -1,5 +1,6 @@
 // components/UpNextList.jsx
 import React, { useRef, useState } from 'react'
+import { matchFormatLabel } from '../engine/scheduleEngine'
 
 // How far a shifted row travels while a drag is in progress. Rows are only
 // uniform when every round is single-court, so this is measured from the row
@@ -21,8 +22,10 @@ function GripIcon({ className }) {
 
 /**
  * The rounds still to come, in playing order, reorderable by dragging one to
- * a new position. Only rounds *after* the one on court are listed, so nothing
- * here can have a result attached and reordering is always safe.
+ * a new position. Each row lists only its matches not yet played or on court
+ * (see queuedSlots); a round can still carry a result from a match pulled
+ * forward, which reordering can't disturb since results go by array index.
+ * A row's number is its `roundNumber` when it has one.
  *
  * The drag runs on pointer events rather than HTML5 drag-and-drop, which
  * doesn't fire on touch at all - this is a phone-in-one-hand screen court-side
@@ -34,7 +37,7 @@ function GripIcon({ className }) {
  * renumbers the running order (see moveSlot), and the row a round is drawn in
  * is not its index in the schedule array.
  */
-export default function UpNextList({ rows, startNumber, isMultiCourt, playersById, onMove, disabled = false }) {
+export default function UpNextList({ rows, startNumber = 1, isMultiCourt, playersById, onMove, disabled = false }) {
   // { from, to, dy, height } while a row is in hand, null otherwise.
   const [drag, setDrag] = useState(null)
   const rowRefs = useRef([])
@@ -120,7 +123,7 @@ export default function UpNextList({ rows, startNumber, isMultiCourt, playersByI
           >
             <button
               type="button"
-              aria-label={`Reorder round ${startNumber + i}`}
+              aria-label={`Reorder round ${rows[i].roundNumber ?? startNumber + i}`}
               disabled={!canReorder}
               onPointerDown={(e) => beginDrag(i, e)}
               onPointerMove={onPointerMove}
@@ -138,7 +141,7 @@ export default function UpNextList({ rows, startNumber, isMultiCourt, playersByI
               <GripIcon className="w-4 h-4" />
             </button>
             <span className="text-xs font-medium text-gray-400 dark:text-gray-500 w-4 text-center shrink-0 mt-0.5">
-              {startNumber + i}
+              {rows[i].roundNumber ?? startNumber + i}
             </span>
             <div className="flex-1 min-w-0 flex flex-col gap-1">
               {matches.map(({ index, match, court }) => (
@@ -146,6 +149,7 @@ export default function UpNextList({ rows, startNumber, isMultiCourt, playersByI
                   {isMultiCourt && (
                     <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 mr-1.5">
                       C{court}
+                      {matchFormatLabel(match) === 'Singles' ? ' · S' : matchFormatLabel(match) ? ' · 2v1' : ''}
                     </span>
                   )}
                   {match.team1.map((pid) => playersById[pid]?.name || pid).join(' & ')}

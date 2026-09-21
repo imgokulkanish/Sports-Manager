@@ -1,6 +1,9 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { usePlayers } from '../hooks/usePlayers'
 import { useStats } from '../hooks/useStats'
+import { useMatches } from '../hooks/useMatch'
+import { computePlayerStats } from '../engine/statsEngine'
+import { MATCH_VARIANTS } from '../context/MatchVariant'
 import PlayerCard from '../components/PlayerCard'
 import PlayerFormModal from '../components/PlayerFormModal'
 import PlayerDetailModal from '../components/PlayerDetailModal'
@@ -12,6 +15,10 @@ import { useAdmin } from '../../shell/components/Admin'
 export default function Players() {
   const { players, loading, addPlayer, updatePlayer, toggleActive, deletePlayer } = usePlayers()
   const { statsById } = useStats()
+  // Box records stay out of statsById (see context/MatchVariant.jsx) — they're
+  // computed separately so the career table can show them as their own row.
+  const { matches: boxMatches } = useMatches(MATCH_VARIANTS.box.collection)
+  const boxStatsById = useMemo(() => computePlayerStats(boxMatches, players), [boxMatches, players])
   const { showToast } = useToast()
   const { isAdmin } = useAdmin()
   const [showAdd, setShowAdd] = useState(false)
@@ -98,6 +105,9 @@ export default function Players() {
       <PlayerDetailModal
         player={selected}
         stat={selected ? statsById[selected.id] : null}
+        boxStat={selected ? boxStatsById[selected.id] : null}
+        statsById={statsById}
+        boxStatsById={boxStatsById}
         canManage={isAdmin}
         onClose={() => setSelected(null)}
         onEdit={(player) => {

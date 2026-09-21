@@ -41,8 +41,14 @@ function ScoreInput({ value, onChange, ariaLabel, maxScore }) {
 /**
  * Whoever reaches the target first wins outright. At deuce, play continues
  * until either side is 2 points clear, capped nine points above the target.
+ *
+ * A handicapped match (2 vs 1, where the solo player wins at 15 and the pair
+ * needs 21) passes a different `theirTarget`. That's a straight race with no
+ * deuce: first side to reach its own target wins. Both can't get there at
+ * once, because only one point is scored per rally.
  */
-export function hasWon(mine, theirs, targetScore = 21) {
+export function hasWon(mine, theirs, targetScore = 21, theirTarget = targetScore) {
+  if (theirTarget !== targetScore) return mine >= targetScore && theirs < theirTarget
   const cappedScore = targetScore + 9
   return mine === cappedScore || (mine >= targetScore && (theirs < targetScore || mine - theirs >= 2))
 }
@@ -51,8 +57,20 @@ export function hasWon(mine, theirs, targetScore = 21) {
  * One side of a match: who's on it, their score, and the button that declares
  * them the winner. `side` only labels the controls for screen readers.
  */
-export function TeamScorePanel({ players, score, onScore, onWin, winLabel, canWin, disabled, side, targetScore = 21 }) {
-  const maxScore = targetScore + 9
+export function TeamScorePanel({
+  players,
+  score,
+  onScore,
+  onWin,
+  winLabel,
+  canWin,
+  disabled,
+  side,
+  targetScore = 21,
+  handicap = false,
+}) {
+  // A handicapped race ends the moment a side reaches its target - no deuce.
+  const maxScore = handicap ? targetScore : targetScore + 9
   const bump = (delta) => onScore(Math.max(0, Math.min(maxScore, score + delta)))
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-3 text-center flex flex-col gap-2">
@@ -63,6 +81,9 @@ export function TeamScorePanel({ players, score, onScore, onWin, winLabel, canWi
             {p.name}
           </div>
         ))}
+        {handicap && (
+          <span className="text-[11px] font-normal text-gray-400 dark:text-gray-500">plays to {targetScore}</span>
+        )}
       </div>
       <div className="flex items-center justify-center gap-3">
         <CounterButton ariaLabel={`${side} score minus`} onClick={() => bump(-1)}>

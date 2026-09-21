@@ -51,7 +51,19 @@ export default function MatchDetail() {
         <h1 className="text-lg font-semibold text-gray-900">
           {match.teamA?.name} vs {match.teamB?.name}
         </h1>
-        <StatusBadge status={match.status} />
+        <div className="flex items-center gap-2 shrink-0">
+          <StatusBadge status={match.status} />
+          {/* Up here rather than under the scorecards, where it was a long
+              scroll away and easy to miss. */}
+          {isAdmin && (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="text-[11px] font-medium text-red-600 border border-red-300 rounded-lg px-2.5 py-1 hover:bg-red-50"
+            >
+              Delete match
+            </button>
+          )}
+        </div>
       </div>
       <div className="mb-4">
         {match.isTournament && match.tournamentId && (
@@ -110,12 +122,6 @@ export default function MatchDetail() {
         <Link to={`${variant.basePath}/match/${id}/live`} className="block text-center bg-pitch text-white rounded-lg py-3 text-sm font-semibold mt-4">
           Continue Live Scoring
         </Link>
-      )}
-
-      {isAdmin && (
-        <button onClick={() => setConfirmDelete(true)} className="w-full border border-red-300 text-red-600 rounded-lg py-2.5 text-sm font-medium mt-4">
-          Delete match
-        </button>
       )}
 
       <ConfirmDialog

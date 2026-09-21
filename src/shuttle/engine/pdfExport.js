@@ -98,10 +98,11 @@ export function exportSchedulePDF(session, players) {
   const partnerLog = {}
   ;[...(session.playerIds || []), ...(session.guestIds || [])].forEach((id) => (partnerLog[id] = []))
   ;(session.schedule || []).forEach((round) => {
-    // Skip one-player teams (quick-play singles) - there is no partner to log,
-    // and pairing someone with `undefined` would print a blank name.
+    // Only true doubles: singles has no partner to log (pairing someone with
+    // `undefined` would print a blank name), and the pair in a 2 vs 1 isn't a
+    // partnership either.
+    if (round.team1.length !== 2 || round.team2.length !== 2) return
     ;[round.team1, round.team2].forEach((team) => {
-      if (team.length !== 2) return
       const [x, y] = team
       if (partnerLog[x]) partnerLog[x].push(nameOf(playersById, y))
       if (partnerLog[y]) partnerLog[y].push(nameOf(playersById, x))

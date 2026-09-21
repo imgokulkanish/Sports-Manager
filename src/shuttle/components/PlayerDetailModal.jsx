@@ -10,6 +10,7 @@ import {
   attendanceRate,
   partnerRecords,
   opponentRecords,
+  playerHighlights,
 } from '../engine/statsEngine'
 import ConfirmDialog from './ConfirmDialog'
 import SampleTag from './SampleTag'
@@ -299,7 +300,7 @@ function DetailedTab({ stat, record, points, form, attendance, achievements }) {
   )
 }
 
-export default function PlayerDetailModal({ player, stat, playersById, sessions, achievements, canDelete, onClose, onToggleActive, onDelete }) {
+export default function PlayerDetailModal({ player, stat, playersById, sessions, achievements, statsById, players, achievementsById, canManage, onClose, onToggleActive, onDelete, onEdit }) {
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [tab, setTab] = useState('overview')
@@ -314,18 +315,42 @@ export default function PlayerDetailModal({ player, stat, playersById, sessions,
   const attendance = useMemo(() => (player && sessions ? attendanceRate(player, sessions) : null), [player, sessions])
   const partners = useMemo(() => partnerRecords(stat), [stat])
   const opponents = useMemo(() => opponentRecords(stat), [stat])
+  const highlights = useMemo(
+    () => (player && statsById ? playerHighlights(player.id, { statsById, players, sessions, achievementsById }) : []),
+    [player, statsById, players, sessions, achievementsById],
+  )
 
   if (!player) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 p-4">
       <div className="bg-white dark:bg-gray-900 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 shadow-xl max-h-[85vh] overflow-y-auto animate-[fadein_0.15s_ease-out]">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{player.name}</h3>
-          <button onClick={onClose} className="text-gray-400 dark:text-gray-500 text-sm hover:text-gray-600 dark:hover:text-gray-300">
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <h3 className="min-w-0 truncate text-base font-semibold text-gray-900 dark:text-gray-100">{player.name}</h3>
+          <button
+            onClick={onClose}
+            className="shrink-0 text-gray-400 dark:text-gray-500 text-sm hover:text-gray-600 dark:hover:text-gray-300"
+          >
             Close
           </button>
         </div>
+
+        {highlights.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {highlights.map((h) => (
+              <span
+                key={h.label}
+                className={`text-[11px] font-medium rounded-full px-2.5 py-1 border ${
+                  h.rank === 1
+                    ? 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300'
+                    : 'bg-green-50 dark:bg-green-500/10 border-green-100 dark:border-green-500/20 text-green-800 dark:text-green-300'
+                }`}
+              >
+                {h.rank === 1 ? '🏆 ' : ''}No. {h.rank} in {h.label}
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="flex gap-2 mb-4">
           <button onClick={() => setTab('overview')} className={TAB_BTN(tab === 'overview')}>
@@ -348,15 +373,27 @@ export default function PlayerDetailModal({ player, stat, playersById, sessions,
         {tab === 'matchups' && <MatchupsTab partners={partners} opponents={opponents} playersById={playersById} />}
 
         <div className="flex gap-2 mt-5">
+          {/* Renaming and deleting are admin-only - see shell/components/Admin.jsx
+              for what that does and doesn't protect. A rename is safe in itself
+              (sessions store ids, never names, so it flows through every past
+              result and leaderboard) but it's still not something a teammate
+              scrolling the app should be able to do by accident. Archive stays
+              open to everyone. */}
+          {canManage && (
+            <button
+              onClick={() => onEdit?.(player)}
+              className="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              Edit
+            </button>
+          )}
           <button
             onClick={() => setConfirmArchive(true)}
             className="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors active:scale-[0.98] hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             {player.isActive ? 'Archive' : 'Unarchive'}
           </button>
-          {/* Delete is admin-only - see shell/components/Admin.jsx for what that
-              does and doesn't protect. Archive stays open to everyone. */}
-          {canDelete && (
+          {canManage && (
             <button
               onClick={() => setConfirmDelete(true)}
               className="flex-1 rounded-lg border border-red-300 dark:border-red-500/40 py-2.5 text-sm font-medium text-red-600 dark:text-red-400 transition-colors active:scale-[0.98] hover:bg-red-50 dark:hover:bg-red-500/10"

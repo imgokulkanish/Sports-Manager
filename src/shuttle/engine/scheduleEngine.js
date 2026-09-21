@@ -87,6 +87,30 @@
 //    already played) and bench only as many as there are bench spots.
 //    On a single court with 6-8 players the cap is never binding, so this
 //    is a no-op for the original round shapes.
+//
+// 8. spareCourt puts a court the group can't fill with doubles to use anyway.
+//    Two courts booked and 7 players turn up: instead of dropping to one
+//    court with 3 on the bench, the round is doubles (4) plus either
+//      'singles'  - 1 v 1 (2 players), 1 resting, or
+//      'twoVsOne' - a pair against one solo player (3), nobody resting.
+//    See courtSizesForSlot. 2 vs 1 needs 3 spare players, so with only 2 it
+//    falls back to singles. Neither format is a real partnership - the pair
+//    in 2 vs 1 isn't what "everyone partners everyone" means - so neither
+//    counts towards pair coverage, partner limits or partner stats; forbidden
+//    partner/opponent rules still apply. Playing ALONE (singles, or the solo
+//    side of 2 vs 1) is the tiring part and gets its own fairness instead:
+//    turns are shared out evenly, nobody plays alone two rounds running,
+//    singles opponents are varied, and whoever just played alone is first in
+//    line for the bench. The solo side's scoring handicap (winning at 15
+//    while the pair needs 21) is a session setting the engine doesn't see.
+//    Off by default: without it every plan is doubles-only exactly as before.
+//
+// 9. extraMatchIds ([playerId]) says who takes the spare matches when the
+//    player-slots don't divide evenly (7 players x 38 slots = 5 each, 3 spare).
+//    Without it the spares land at random. The chosen players get their extra
+//    through assignTargets, and a seed that fails to deliver it is warned
+//    about - which also costs it fitness and blocks the early exit - so the
+//    search keeps looking for one that does.
 
 function mulberry32(seed) {
   let a = seed >>> 0
@@ -151,7 +175,16 @@ export function courtPlanFromMinutes(totalMinutes, extraCourtMinutes, minutesPer
  * as fast; if the target is small enough that the two-court stretch alone
  * overshoots it, the stretch itself is shortened.
  */
-export function courtPlanForMatchesPerPlayer(numPlayers, matchesPerPlayer, extraCourtSlots = 0) {
+export function courtPlanForMatchesPerPlayer(numPlayers, matchesPerPlayer, extraCourtSlots = 0, spareCourt = null) {
+  const twoCourtSeats = courtSizesForSlot(2, numPlayers, spareCourt).reduce((sum, size) => sum + size, 0)
+  if (twoCourtSeats > 4 && twoCourtSeats < 8) {
+    // Doubles + singles or 2 vs 1: a two-court slot seats 6 or 7, not 8, so
+    // it can't be counted as two matches' worth of the target.
+    const seatsWanted = Math.max(1, matchesPerPlayer * numPlayers)
+    const twoCourt = Math.min(Math.max(0, extraCourtSlots), Math.floor(seatsWanted / twoCourtSeats))
+    const singleCourt = Math.max(twoCourt ? 0 : 1, Math.ceil((seatsWanted - twoCourt * twoCourtSeats) / 4))
+    return [...Array(twoCourt).fill(2), ...Array(singleCourt).fill(1)]
+  }
   const totalMatches = Math.max(1, Math.ceil((matchesPerPlayer * numPlayers) / 4))
   const twoCourt = Math.min(Math.max(0, extraCourtSlots), Math.floor(totalMatches / 2))
   const singleCourt = Math.max(0, totalMatches - 2 * twoCourt)
@@ -159,21 +192,72 @@ export function courtPlanForMatchesPerPlayer(numPlayers, matchesPerPlayer, extra
 }
 
 /**
- * Clamp a plan to what the group can actually staff: a court needs 4 players,
- * so 10 players can run at most 2 courts, 7 players at most 1.
+ * How many players each court of a slot takes: 4 for doubles, 3 for 2 vs 1,
+ * 2 for singles. Courts are filled with doubles first; with `spareCourt`
+ * ('singles' | 'twoVsOne'), one court left over becomes a singles or 2 vs 1
+ * court if enough players are still off court (see design note 8). Courts
+ * nobody can staff are dropped, so the result can be shorter than `courts`.
  */
-export function clampCourtPlan(courtsBySlot, numPlayers) {
-  const maxCourts = Math.max(1, Math.floor(numPlayers / 4))
+export function courtSizesForSlot(courts, numPlayers, spareCourt = null) {
+  const doubles = Math.max(0, Math.min(courts, Math.floor(numPlayers / 4)))
+  const left = numPlayers - 4 * doubles
+  const sizes = Array(doubles).fill(4)
+  if (spareCourt && courts > doubles) {
+    if (spareCourt === 'twoVsOne' && left >= 3) sizes.push(3)
+    else if (left >= 2) sizes.push(2)
+  }
+  return sizes
+}
+
+/** Most courts a group can staff at once. */
+export function maxCourtsFor(numPlayers, spareCourt = null) {
+  return Math.max(1, courtSizesForSlot(Infinity, numPlayers, spareCourt).length)
+}
+
+/** True when a scheduled match is singles (one player a side). */
+export function isSinglesMatch(match) {
+  return match?.team1?.length === 1 && match?.team2?.length === 1
+}
+
+/** True when a scheduled match is a pair against one solo player. */
+export function isTwoVsOneMatch(match) {
+  const sides = [match?.team1?.length, match?.team2?.length]
+  return sides.includes(1) && sides.includes(2)
+}
+
+/** 'Singles', '2 vs 1', or null for ordinary doubles - for court labels. */
+export function matchFormatLabel(match) {
+  if (isSinglesMatch(match)) return 'Singles'
+  if (isTwoVsOneMatch(match)) return '2 vs 1'
+  return null
+}
+
+/**
+ * Clamp a plan to what the group can actually staff: a doubles court needs 4
+ * players, so 10 players can run at most 2 courts, 7 players at most 1 - or
+ * 2 with `spareCourt`, the second one playing singles or 2 vs 1.
+ */
+export function clampCourtPlan(courtsBySlot, numPlayers, spareCourt = null) {
+  const maxCourts = maxCourtsFor(numPlayers, spareCourt)
   return courtsBySlot.map((c) => Math.max(1, Math.min(maxCourts, c)))
 }
 
 /** Slot/match/matches-per-player totals for a plan, for UI preview text. */
-export function summarizeCourtPlan(courtsBySlot, numPlayers) {
+export function summarizeCourtPlan(courtsBySlot, numPlayers, spareCourt = null) {
   const slots = courtsBySlot.length
   const totalMatches = courtsBySlot.reduce((sum, c) => sum + c, 0)
-  const matchesPerPlayer = numPlayers ? Math.floor((4 * totalMatches) / numPlayers) : 0
-  const extraSlots = numPlayers ? 4 * totalMatches - matchesPerPlayer * numPlayers : 0
-  return { slots, totalMatches, matchesPerPlayer, playersWithOneExtra: extraSlots }
+  let playerSlots = 0
+  let singlesMatches = 0
+  let twoVsOneMatches = 0
+  for (const c of courtsBySlot) {
+    const sizes = courtSizesForSlot(c, numPlayers, spareCourt)
+    playerSlots += sizes.reduce((sum, size) => sum + size, 0)
+    singlesMatches += sizes.filter((size) => size === 2).length
+    twoVsOneMatches += sizes.filter((size) => size === 3).length
+  }
+  const matchesPerPlayer = numPlayers ? Math.floor(playerSlots / numPlayers) : 0
+  const extraSlots = numPlayers ? playerSlots - matchesPerPlayer * numPlayers : 0
+  return { slots, totalMatches, singlesMatches, twoVsOneMatches, matchesPerPlayer, playersWithOneExtra: extraSlots }
 }
 
 /**
@@ -228,8 +312,12 @@ export function orderedMatches(schedule = []) {
  * no such match, `outId` not on that court, or `inId` already playing the
  * same slot on the other court. Callers use the identity check to tell a
  * no-op from a real edit.
+ *
+ * `busyIds`, when given, is who is on court right now. The live page runs the
+ * courts as independent queues (see resolveOnCourt), so the match on the other
+ * court needn't be from the same slot - that list is the real clash check.
  */
-export function substituteInSchedule(schedule = [], matchIndex, outId, inId) {
+export function substituteInSchedule(schedule = [], matchIndex, outId, inId, { busyIds = null } = {}) {
   const target = schedule[matchIndex]
   if (!target || !outId || !inId || outId === inId) return schedule
   if (![...target.team1, ...target.team2].includes(outId)) return schedule
@@ -237,9 +325,9 @@ export function substituteInSchedule(schedule = [], matchIndex, outId, inId) {
   const slot = target.slot ?? matchIndex
   const inSlot = (match, i) => (match.slot ?? i) === slot
   // Nobody can be on two courts at once.
-  const alreadyPlaying = schedule.some(
-    (match, i) => inSlot(match, i) && [...match.team1, ...match.team2].includes(inId),
-  )
+  const alreadyPlaying = busyIds
+    ? busyIds.includes(inId)
+    : schedule.some((match, i) => inSlot(match, i) && [...match.team1, ...match.team2].includes(inId))
   if (alreadyPlaying) return schedule
 
   return schedule.map((match, i) => {
@@ -265,12 +353,15 @@ export function substituteInSchedule(schedule = [], matchIndex, outId, inId) {
  * read as "who came in for whom", and a side switch isn't either. Two players
  * already on the same team are refused (returns the schedule unchanged):
  * trading places within a team changes nothing.
+ *
+ * `matchIndices`, when given, is the set of matches on court right now, which
+ * is where the other player is looked for instead of the planned slot.
  */
-export function swapPlayersInSlot(schedule = [], matchIndex, idA, idB) {
+export function swapPlayersInSlot(schedule = [], matchIndex, idA, idB, { matchIndices = null } = {}) {
   const target = schedule[matchIndex]
   if (!target || !idA || !idB || idA === idB) return schedule
   const slot = target.slot ?? matchIndex
-  const inSlot = (match, i) => (match.slot ?? i) === slot
+  const inSlot = matchIndices ? (_, i) => matchIndices.includes(i) : (match, i) => (match.slot ?? i) === slot
 
   const locate = (id) => {
     for (let i = 0; i < schedule.length; i++) {
@@ -370,26 +461,26 @@ export function moveCourtPlanSlot(courtsBySlot, fromSlot, toSlot) {
 }
 
 /**
- * Which slots can still be rewritten: everything after the last slot holding
- * any result at all. A slot with a result in it is left alone even if its
- * other court is still playing — rewriting half a slot would strand a
- * recorded score next to opponents who never played it.
+ * Which slots can still be rewritten: every slot with nothing in it scored or
+ * on court. A slot with a result in it is left alone even if its other match
+ * hasn't been played — rewriting half a slot would strand a recorded score
+ * next to opponents who never played it.
  *
- * Anchoring on the LAST scored slot rather than the first unscored one
- * matters: an undo can leave an unscored slot sitting behind a scored one,
- * and redrawing from there would rewrite rounds that have already been played.
+ * `started` lists the matches on court (the session's stored `onCourt`). The
+ * courts run as queues, so a match from a later round can be pulled forward
+ * and played while earlier rounds are still to come; those earlier rounds are
+ * still fair game. An undo puts the match back on court (see useSession), so
+ * it lands in `started` rather than looking unplayed.
  *
  * Returns { fromSlot, courtsBySlot, indices } where `indices` are the schedule
  * array positions of the pending matches in playing order, or null if there is
  * nothing left to rewrite.
  */
-export function pendingSlots(schedule = [], scores = {}) {
-  const slots = groupBySlot(schedule)
-  let lastScored = -1
-  slots.forEach((slot, i) => {
-    if (slot.matches.some(({ index }) => scores[index])) lastScored = i
-  })
-  const pending = slots.slice(lastScored + 1)
+export function pendingSlots(schedule = [], scores = {}, started = []) {
+  const startedSet = new Set(started)
+  const pending = groupBySlot(schedule).filter(
+    (slot) => !slot.matches.some(({ index }) => scores[index] || startedSet.has(index)),
+  )
   if (!pending.length) return null
   return {
     fromSlot: pending[0].slot,
@@ -433,6 +524,159 @@ export function guestIdsIn(schedule = [], playerIds = []) {
     })
   })
   return [...guests]
+}
+
+// --- Court queue -------------------------------------------------------------
+//
+// Two courts rarely finish together. Holding a free court until the other one
+// is done wastes the booking, so the live page treats each court as a queue:
+// when a court frees up it takes the earliest match still to play whose
+// players are all off court. The schedule's slot order stays the plan - it is
+// what balances rest - and a match is only pulled forward when the next one in
+// line is waiting on somebody still playing.
+//
+// What is on each court is stored on the session as `onCourt` ({ [court]:
+// matchIndex }) the moment a court changes hands. It can't just be derived:
+// once the other court finishes, the earliest playable match may be a
+// different one from the match this court already started.
+
+const onCourtIds = (match) => [...(match?.team1 || []), ...(match?.team2 || [])]
+
+/** The court numbers a schedule plans for, lowest first. */
+export function courtsInSchedule(schedule = []) {
+  const courts = [...new Set(schedule.map((match) => match.court ?? 1))].sort((a, b) => a - b)
+  return courts.length ? courts : [1]
+}
+
+/**
+ * The court a scored match was actually played on. Results recorded before
+ * the courts ran as queues don't carry one, and were played where planned.
+ */
+export function playedCourt(schedule = [], index, entry) {
+  return entry?.court ?? schedule[index]?.court ?? 1
+}
+
+/**
+ * What each court is playing: `onCourt` entries that are still valid are kept
+ * (in court order, so a clash goes to the lower court), and every free court
+ * is handed the earliest unscored match with nobody in it already on court.
+ *
+ * Court 1 always takes a match. A higher court only starts one while it has
+ * played fewer matches than were planned for it, and once the running order
+ * has reached a round that books it - a second court hired for the first hour
+ * shouldn't keep taking games in the second. An explicit `onCourt` entry
+ * overrides that, which is how "play the next match here anyway" works.
+ *
+ * Returns { [court]: matchIndex | null } for every planned court.
+ */
+export function resolveOnCourt(schedule = [], scores = {}, onCourt = {}) {
+  const courts = courtsInSchedule(schedule)
+  const slots = groupBySlot(schedule)
+  const result = {}
+  const used = new Set()
+  const busy = new Set()
+  const clashes = (index) => onCourtIds(schedule[index]).some((id) => busy.has(id))
+  const take = (court, index) => {
+    result[court] = index
+    used.add(index)
+    onCourtIds(schedule[index]).forEach((id) => busy.add(id))
+  }
+
+  for (const court of courts) {
+    const index = onCourt?.[court]
+    if (Number.isInteger(index) && schedule[index] && !scores[index] && !used.has(index) && !clashes(index)) {
+      take(court, index)
+    }
+  }
+
+  const planned = {}
+  const played = {}
+  schedule.forEach((match, i) => {
+    const court = match.court ?? 1
+    planned[court] = (planned[court] || 0) + 1
+    if (scores[i]) {
+      const on = playedCourt(schedule, i, scores[i])
+      played[on] = (played[on] || 0) + 1
+    }
+  })
+  const frontier = slots.findIndex((slot) => slot.matches.some(({ index }) => !scores[index]))
+  const courtOpen = (court) =>
+    court === 1 ||
+    ((played[court] || 0) < (planned[court] || 0) &&
+      slots.some((slot, i) => i <= frontier && slot.matches.some((m) => m.court === court)))
+
+  const order = orderedMatches(schedule)
+  for (const court of courts) {
+    if (court in result) continue
+    result[court] = null
+    if (!courtOpen(court)) continue
+    const next = order.find(({ index }) => !scores[index] && !used.has(index) && !clashes(index))
+    if (next) take(court, next.index)
+  }
+  return result
+}
+
+/** `onCourt` without the empty courts, for storing. */
+export function compactOnCourt(onCourt = {}) {
+  return Object.fromEntries(Object.entries(onCourt).filter(([, index]) => Number.isInteger(index)))
+}
+
+/** The stored on-court matches that are still unplayed - see pendingSlots. */
+export function startedMatches(schedule = [], scores = {}, onCourt = {}) {
+  return Object.values(onCourt || {}).filter((index) => Number.isInteger(index) && schedule[index] && !scores[index])
+}
+
+/**
+ * The rounds still to come for the "Up next" list: every slot, in running
+ * order, cut down to the matches neither scored nor on court. `roundNumber`
+ * is the slot's place in the full running order, so a round keeps its number
+ * when a match from it is pulled forward.
+ */
+export function queuedSlots(schedule = [], scores = {}, onCourt = {}) {
+  const live = new Set(Object.values(onCourt || {}))
+  return groupBySlot(schedule)
+    .map(({ slot, matches }, i) => ({
+      slot,
+      roundNumber: i + 1,
+      matches: matches.filter(({ index }) => !scores[index] && !live.has(index)),
+    }))
+    .filter((row) => row.matches.length)
+}
+
+/**
+ * Trade the places (slot and court) of two matches - "play this one now, that
+ * one later" for a single court, when somebody in the match due on it hasn't
+ * arrived. Trading whole slots would also shuffle the other court's game.
+ *
+ * Array positions stay put, so `scores` and `onCourt` still line up. The two
+ * rounds' bench lists are rebuilt, since each round now has different people
+ * on court.
+ */
+export function swapMatchPlaces(schedule = [], a, b) {
+  if (a === b || !schedule[a] || !schedule[b]) return schedule
+  const place = (i) => ({ slot: schedule[i].slot ?? i, court: schedule[i].court ?? 1 })
+  const pa = place(a)
+  const pb = place(b)
+  const moved = schedule.map((match, i) => (i === a ? { ...match, ...pb } : i === b ? { ...match, ...pa } : match))
+
+  const affected = new Set([pa.slot, pb.slot])
+  const inAffected = (match, i) => affected.has(match.slot ?? i)
+  const roster = new Set()
+  schedule.forEach((match, i) => {
+    if (inAffected(match, i)) [...onCourtIds(match), ...(match.resting || [])].forEach((id) => roster.add(id))
+  })
+  const playingBySlot = new Map()
+  moved.forEach((match, i) => {
+    if (!inAffected(match, i)) return
+    const slot = match.slot ?? i
+    if (!playingBySlot.has(slot)) playingBySlot.set(slot, new Set())
+    onCourtIds(match).forEach((id) => playingBySlot.get(slot).add(id))
+  })
+  return moved.map((match, i) => {
+    if (!inAffected(match, i)) return match
+    const playing = playingBySlot.get(match.slot ?? i)
+    return { ...match, resting: [...roster].filter((id) => !playing.has(id)) }
+  })
 }
 
 function shuffle(arr, rng) {
@@ -513,6 +757,9 @@ function scoreSplit({ team1, team2 }, state, slotIndex, playersById, duePairs = 
     } else {
       score -= 15 // reward covering a brand-new pair
     }
+    // Just played side by side in a 2 vs 1 - not a partnership, but the same
+    // two together again next round still feels like a repeat.
+    if (state.sidePairLastSlot?.[key] === slotIndex - 1) score += 25
     // doubleWith target: this pair SHOULD partner exactly twice.
     const pa = playersById[a]
     const pb = playersById[b]
@@ -569,15 +816,134 @@ function twoCourtPartitions(eight) {
 }
 
 /**
- * Deal the slot's active players onto `courts` courts and pick each court's
- * teams. Two courts get an exhaustive search over all 35 deals (cheap, and
+ * Tally a singles or 2 vs 1 match into the spare-court counters (note 8):
+ * who played ALONE, and which players have already met on that court.
+ * Returns false for an ordinary doubles match, which it leaves untouched.
+ */
+function recordSpareCourtMatch(match, { aloneCount, aloneLastSlot, spareMeetings, sidePairLastSlot }, slot = null) {
+  if (!isSinglesMatch(match) && !isTwoVsOneMatch(match)) return false
+  const pair = [match.team1, match.team2].find((team) => team.length === 2)
+  if (pair && sidePairLastSlot && slot != null) sidePairLastSlot[pairKey(pair[0], pair[1])] = slot
+  const alone = [match.team1, match.team2].filter((team) => team.length === 1).map((team) => team[0])
+  for (const id of alone) {
+    aloneCount[id] = (aloneCount[id] || 0) + 1
+    if (aloneLastSlot && slot != null) aloneLastSlot[id] = slot
+  }
+  const players = [...match.team1, ...match.team2]
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      const key = pairKey(players[i], players[j])
+      spareMeetings[key] = (spareMeetings[key] || 0) + 1
+    }
+  }
+  return true
+}
+
+// Lower is better, same scale as scoreSplit. `alone` is whoever plays without
+// a partner on the spare court this slot (both singles players, or the solo
+// side of 2 vs 1), `players` everyone on that court - see design note 8.
+function scoreSpareCourt(layout, state, slotIndex) {
+  const players = [...layout.team1, ...layout.team2]
+  const alone = [layout.team1, layout.team2].filter((team) => team.length === 1).map((team) => team[0])
+  let score = 0
+  // The pair in 2 vs 1 isn't a partnership for coverage, but two people who
+  // just partnered in doubles shouldn't be stuck together again straight away.
+  const pair = [layout.team1, layout.team2].find((team) => team.length === 2)
+  if (pair) {
+    const key = pairKey(pair[0], pair[1])
+    score += 10 * (state.partnerCount[key] || 0)
+    const gap = slotIndex - state.partnerLastSlot[key]
+    if (gap <= 2) score += 30 - gap * 10
+  }
+  for (const id of alone) {
+    score += 25 * (state.aloneCount[id] || 0) // share the solo turns out evenly
+    const last = state.aloneLastSlot[id]
+    if (last === slotIndex - 1) score += 200 // never alone twice in a row
+    else if (last === slotIndex - 2) score += 20
+  }
+  for (let i = 0; i < players.length; i++) {
+    for (let j = i + 1; j < players.length; j++) {
+      score += 15 * (state.spareMeetings[pairKey(players[i], players[j])] || 0)
+    }
+  }
+  return score
+}
+
+// Every way to pick `k` of `ids`, as index lists.
+function combinations(length, k, start = 0, prefix = [], out = []) {
+  if (prefix.length === k) {
+    out.push(prefix)
+    return out
+  }
+  for (let i = start; i < length; i++) combinations(length, k, i + 1, [...prefix, i], out)
+  return out
+}
+
+/**
+ * Doubles courts plus one spare court of `spareSize` players (2 = singles,
+ * 3 = 2 vs 1): try every choice of who plays on it - and for 2 vs 1, who goes
+ * solo - then deal the rest onto the doubles courts, keeping the best combined
+ * score. 7 on court means at most 35 groups x 3 solos, which is cheap.
+ */
+function assignWithSpareCourt(activeIds, doublesCourts, spareSize, state, slotIndex, playersById, rng, duePairs, partnerLimits) {
+  let best = null
+  let bestScore = Infinity
+  for (const picked of combinations(activeIds.length, spareSize)) {
+    const group = picked.map((idx) => activeIds[idx])
+    const others = activeIds.filter((_, idx) => !picked.includes(idx))
+    // Singles: one layout. 2 vs 1: each of the three can be the solo player.
+    const layouts =
+      spareSize === 2
+        ? [{ team1: [group[0]], team2: [group[1]] }]
+        : group.map((solo) => ({ team1: group.filter((id) => id !== solo), team2: [solo] }))
+    let doubles = []
+    let doublesScore = 0
+    if (doublesCourts > 0) {
+      const found = assignCourts(
+        others,
+        Array(doublesCourts).fill(4),
+        others,
+        state,
+        slotIndex,
+        playersById,
+        rng,
+        duePairs,
+        partnerLimits,
+        true,
+      )
+      if (!found) continue
+      doubles = found.matches
+      doublesScore = found.score
+    }
+    for (const layout of layouts) {
+      // No partner allowance applies (it isn't a partnership, note 8), but
+      // "never partners" / "never opponents" rules still do.
+      if (violatesForbidden(layout.team1, layout.team2, playersById)) continue
+      const total = doublesScore + scoreSpareCourt(layout, state, slotIndex)
+      if (total < bestScore) {
+        bestScore = total
+        // Which side is "Team 1" is cosmetic; vary it for singles. 2 vs 1
+        // always lists the pair first so the solo player is easy to spot.
+        const spare = spareSize === 2 && rng() < 0.5 ? { team1: layout.team2, team2: layout.team1 } : layout
+        best = [...doubles, spare]
+      }
+    }
+  }
+  return best
+}
+
+/**
+ * Deal the slot's active players onto courts of `sizes` (4 = doubles,
+ * 3 = 2 vs 1, 2 = singles) and pick each court's teams. A spare court is
+ * handled by assignWithSpareCourt, which deals the doubles courts back here.
+ * Two doubles courts get an exhaustive search over all 35 deals (cheap, and
  * it materially improves pair coverage over greedy chunking); one court uses
  * the original single-foursome path including its swap-out fallback; three or
  * more fall back to greedy chunking in priority order.
  */
 function assignCourts(
   activeIds,
-  courts,
+  sizes,
   eligiblePool,
   state,
   slotIndex,
@@ -585,11 +951,19 @@ function assignCourts(
   rng,
   duePairs = null,
   partnerLimits = null,
+  withScore = false,
 ) {
+  const doublesCourts = sizes.filter((size) => size === 4).length
+  const spareSize = sizes.find((size) => size !== 4)
+  if (spareSize) {
+    return assignWithSpareCourt(activeIds, doublesCourts, spareSize, state, slotIndex, playersById, rng, duePairs, partnerLimits)
+  }
+  const courts = sizes.length
+  const done = (matches, score) => (withScore ? { matches, score } : matches)
   if (courts === 1) {
     const four = activeIds.slice(0, 4)
     const direct = bestSplitFor(four, state, slotIndex, playersById, rng, duePairs, partnerLimits)
-    if (direct) return [direct.split]
+    if (direct) return done([direct.split], direct.score)
     // All 3 splits violate a forbidden constraint for this exact foursome.
     // Try swapping one player out for another eligible player once.
     for (const swapOut of four) {
@@ -597,7 +971,7 @@ function assignCourts(
       for (const alt of shuffle(alternatives, rng)) {
         const candidate = four.map((id) => (id === swapOut ? alt : id))
         const found = bestSplitFor(candidate, state, slotIndex, playersById, rng, duePairs, partnerLimits)
-        if (found) return [found.split]
+        if (found) return done([found.split], found.score)
       }
     }
     return null
@@ -617,12 +991,13 @@ function assignCourts(
         best = [a.split, b.split]
       }
     }
-    return best
+    return best ? done(best, bestScore) : null
   }
 
   // 3+ courts: chunk in priority order. Not exhaustive, but nobody books
   // three courts for this group today and the fairness targets still hold.
   const matches = []
+  let total = 0
   for (let c = 0; c < courts; c++) {
     const found = bestSplitFor(
       activeIds.slice(c * 4, c * 4 + 4),
@@ -635,8 +1010,9 @@ function assignCourts(
     )
     if (!found) return null
     matches.push(found.split)
+    total += found.score
   }
-  return matches
+  return done(matches, total)
 }
 
 function pickActive(eligiblePool, mustPlaySet, matchesRemaining, restStreak, rng, count, forcedIds = new Set()) {
@@ -674,25 +1050,34 @@ function pickActive(eligiblePool, mustPlaySet, matchesRemaining, restStreak, rng
  * of what's left, cheapest cap first, so every slot a capped player declines
  * is re-offered to the players who can still take it.
  */
-function assignTargets(ids, totalPlayerSlots, totalSlots, matchCaps, rng) {
+function assignTargets(ids, totalPlayerSlots, totalSlots, matchCaps, rng, extraMatchIds = []) {
   const caps = {}
   for (const id of ids) {
     const asked = matchCaps[id]
     caps[id] = Math.max(0, Math.min(asked == null ? Infinity : asked, totalSlots))
   }
 
+  // The flooring below pushes the spare slots onto whoever is dealt LAST among
+  // equal caps (7 players, 36 slots: six get 5, the seventh 6). So players
+  // picked for an extra match (note 9) go last - the first pick last of all -
+  // and everyone else is shuffled ahead of them. Without the shuffle the spare
+  // always went to the same players, the ones at the end of the roster.
+  const preferred = extraMatchIds.filter((id) => ids.includes(id))
+  const dealOrder = [...shuffle(ids.filter((id) => !preferred.includes(id)), rng), ...[...preferred].reverse()]
+  const position = new Map(dealOrder.map((id, i) => [id, i]))
+
   const targets = {}
   let remaining = totalPlayerSlots
   let left = ids.length
-  for (const id of [...ids].sort((a, b) => caps[a] - caps[b])) {
+  for (const id of [...ids].sort((a, b) => caps[a] - caps[b] || position.get(a) - position.get(b))) {
     targets[id] = Math.min(caps[id], Math.floor(remaining / left))
     remaining -= targets[id]
     left--
   }
 
-  // Flooring above leaves a few slots over; give them to whoever still has
-  // headroom. Randomised so it isn't always the same players topped up.
-  for (const id of shuffle(ids, rng)) {
+  // Anything still over (only when caps got in the way) goes to whoever has
+  // headroom, picked players first.
+  for (const id of [...preferred, ...dealOrder.filter((id) => !preferred.includes(id))]) {
     if (remaining <= 0) break
     if (targets[id] < caps[id]) {
       targets[id] += 1
@@ -724,6 +1109,8 @@ function priorScheduleState(ids, priorSchedule = []) {
   const partnerCount = {}
   const opponentCount = {}
   const recentMatchSignatures = new Set()
+  const aloneCount = {}
+  const spareMeetings = {}
   const ordered = priorSchedule
     .map((match, index) => ({ match, slot: match.slot ?? index }))
     .sort((a, b) => a.slot - b.slot)
@@ -733,6 +1120,7 @@ function priorScheduleState(ids, priorSchedule = []) {
     players.filter((id) => known.has(id)).forEach((id) => {
       matchesPlayed[id] += 1
     })
+    if (recordSpareCourtMatch(match, { aloneCount, spareMeetings })) continue
     if (match.team1?.length !== 2 || match.team2?.length !== 2) continue
     const partnerKey1 = pairKey(match.team1[0], match.team1[1])
     const partnerKey2 = pairKey(match.team2[0], match.team2[1])
@@ -748,7 +1136,7 @@ function priorScheduleState(ids, priorSchedule = []) {
     while (recentMatchSignatures.size > 5) recentMatchSignatures.delete(recentMatchSignatures.values().next().value)
   }
 
-  return { matchesPlayed, partnerCount, opponentCount, recentMatchSignatures }
+  return { matchesPlayed, partnerCount, opponentCount, recentMatchSignatures, aloneCount, spareMeetings }
 }
 
 function attemptSchedule(
@@ -760,18 +1148,24 @@ function attemptSchedule(
   requiredPairs = [],
   partnerLimits = null,
   priorSchedule = [],
+  spareCourt = null,
+  extraMatchIds = [],
 ) {
   const rng = mulberry32(seed)
   const playersById = Object.fromEntries(players.map((p) => [p.id, p]))
   const ids = players.map((p) => p.id)
   const n = ids.length
   const totalSlots = courtsBySlot.length
-  const totalMatches = courtsBySlot.reduce((sum, c) => sum + c, 0)
+  // Players per court for every slot (4 doubles, 2 singles) - see note 8.
+  const sizesBySlot = courtsBySlot.map((c) => courtSizesForSlot(c, n, spareCourt))
+  const doublesBySlot = sizesBySlot.map((sizes) => sizes.filter((size) => size === 4).length)
+  const totalPlayerSlots = sizesBySlot.reduce((sum, sizes) => sum + sizes.reduce((a, b) => a + b, 0), 0)
+  const totalDoubles = doublesBySlot.reduce((sum, d) => sum + d, 0)
   const historical = priorScheduleState(ids, priorSchedule)
   // Counted now, not at the end: `state.partnerCount` below is the very same
   // object, and the slot loop mutates it as matches are drawn.
   const priorCoveredPairs = countCoveredPairs(ids, historical.partnerCount)
-  const { targets: addedTargets, shortfall } = assignTargets(ids, 4 * totalMatches, totalSlots, matchCaps, rng)
+  const { targets: addedTargets, shortfall } = assignTargets(ids, totalPlayerSlots, totalSlots, matchCaps, rng, extraMatchIds)
   const targetByPlayer = Object.fromEntries(ids.map((id) => [id, historical.matchesPlayed[id] + addedTargets[id]]))
   // A player's own limit, kept separate from their target: the target is what
   // the schedule aims to give them, the cap is what it must not exceed even
@@ -789,6 +1183,11 @@ function attemptSchedule(
     partnerLastSlot: {},
     opponentCount: historical.opponentCount,
     recentMatchSignatures: historical.recentMatchSignatures,
+    aloneCount: historical.aloneCount,
+    aloneLastSlot: {},
+    spareMeetings: historical.spareMeetings,
+    // pairKey -> last slot two people were the pair in a 2 vs 1 (note 8)
+    sidePairLastSlot: {},
   }
 
   const schedule = []
@@ -802,9 +1201,10 @@ function attemptSchedule(
   )
 
   for (let slot = 0; slot < totalSlots; slot++) {
-    const courts = courtsBySlot[slot]
-    const needed = 4 * courts
-    if (n < needed) return null // caller should have clamped the plan
+    const sizes = sizesBySlot[slot]
+    const courts = sizes.length
+    const needed = sizes.reduce((sum, size) => sum + size, 0)
+    if (!courts || n < needed) return null // caller should have clamped the plan
     const benchSize = n - needed
     const remainingSlotsInclusive = totalSlots - slot
     const mustRestSet = new Set()
@@ -830,13 +1230,26 @@ function attemptSchedule(
         // they take the bench ahead of anyone who is merely tired or ahead.
         restCandidates.push({ id, priority: 100 })
       } else if (state.activeStreak[id] >= 2) {
-        restCandidates.push({ id, priority: 10 + state.activeStreak[id] })
+        // Coming straight off playing alone breaks a tie between equally tired players.
+        const offAlone = state.aloneLastSlot[id] === slot - 1 ? 0.5 : 0
+        restCandidates.push({ id, priority: 10 + state.activeStreak[id] + offAlone })
+      } else if (state.aloneLastSlot[id] === slot - 1 && remaining < remainingSlotsInclusive) {
+        // Playing alone is the tiring part: a breather after it comes first, as
+        // long as they can still reach their match target without this slot.
+        restCandidates.push({ id, priority: 2 })
       } else if (remaining <= 0) {
         restCandidates.push({ id, priority: 1 }) // hit their target, let others catch up
       }
     }
+    // Among equally deserving candidates, whoever is furthest ahead of their
+    // target sits - so a player owed an extra match (note 9) isn't benched
+    // for having played as much as everyone else.
+    const matchesOwed = (id) => targetByPlayer[id] - state.matchesPlayed[id]
     restCandidates.sort(
-      (a, b) => b.priority - a.priority || state.matchesPlayed[b.id] - state.matchesPlayed[a.id],
+      (a, b) =>
+        b.priority - a.priority ||
+        matchesOwed(a.id) - matchesOwed(b.id) ||
+        state.matchesPlayed[b.id] - state.matchesPlayed[a.id],
     )
     for (const { id } of restCandidates.slice(0, Math.max(0, benchSize - mustRestSet.size))) {
       mustRestSet.add(id)
@@ -917,7 +1330,7 @@ function attemptSchedule(
       }
     }
     let partnershipsLeft = 0
-    for (let s = slot; s < totalSlots; s++) partnershipsLeft += 2 * courtsBySlot[s]
+    for (let s = slot; s < totalSlots; s++) partnershipsLeft += 2 * doublesBySlot[s]
     // Half the remaining capacity: leaves enough slack that the chase starts
     // early enough to finish, without taking over a session that is
     // comfortably on track.
@@ -944,7 +1357,7 @@ function attemptSchedule(
       // Pairs the user explicitly asked for are placed before chased ones -
       // an explicit rule outranks the engine's own coverage goal.
       for (const { a, b } of [...requiredPairs, ...chaseOrder]) {
-        if (forcedIds.size >= needed) break
+        if (forcedIds.size >= 4 * doublesBySlot[slot]) break // partners only exist on doubles courts
         if (!duePairs.has(pairKey(a, b))) continue
         if (mustRestSet.has(a) || mustRestSet.has(b)) continue // a rest rule or personal cap outranks this
         if (claimed.has(a) || claimed.has(b)) continue
@@ -968,7 +1381,7 @@ function attemptSchedule(
 
     const matches = assignCourts(
       activeIds,
-      courts,
+      sizes,
       eligiblePool,
       state,
       slot,
@@ -996,6 +1409,7 @@ function attemptSchedule(
       state.activeStreak[id] = 0
     }
     for (const m of matches) {
+      if (recordSpareCourtMatch(m, state, slot)) continue
       const partnerKey1 = pairKey(m.team1[0], m.team1[1])
       const partnerKey2 = pairKey(m.team2[0], m.team2[1])
       state.partnerCount[partnerKey1] = (state.partnerCount[partnerKey1] || 0) + 1
@@ -1052,6 +1466,12 @@ function attemptSchedule(
   }
   const unmetRequired = outstandingPairs.size
 
+  // Someone picked for an extra match who didn't get it - see note 9.
+  for (const id of extraMatchIds) {
+    if (!(id in targetByPlayer) || state.matchesPlayed[id] >= targetByPlayer[id]) continue
+    warnings.push(`${nameOf(id)} was picked for an extra match but plays ${state.matchesPlayed[id]}.`)
+  }
+
   const uncappedCounts = ids.filter((id) => hardCap[id] == null).map((id) => state.matchesPlayed[id])
   const spread = uncappedCounts.length ? Math.max(...uncappedCounts) - Math.min(...uncappedCounts) : 0
   if (spread > 1) warnings.push(`Match distribution spread is ${spread} (target: max 1).`)
@@ -1078,7 +1498,7 @@ function attemptSchedule(
   // then fired on the very first seed, every time, and the redraw was never
   // searched at all. See priorScheduleState.
   const maxCoverageRatio = totalPairs
-    ? Math.min(1, (priorCoveredPairs + 2 * totalMatches) / totalPairs)
+    ? Math.min(1, (priorCoveredPairs + 2 * totalDoubles) / totalPairs)
     : 1
   // Pairs that could have been put together and weren't. Rounding guards the
   // ratio arithmetic; the term is monotonic in coveredPairs either way.
@@ -1148,6 +1568,9 @@ function attemptSchedule(
  *   `requiredPairs` is [{ a, b }] - partner at least once, see note 6.
  *   `partnerLimits` is [{ a, b, max }] - partner at most `max` times (default
  *   1), see note 7.
+ *   `spareCourt` ('singles' | 'twoVsOne') runs a court doubles can't fill
+ *   in that format, see note 8.
+ *   `extraMatchIds` is [playerId] - who takes the spare matches, see note 9.
  *   `courtsBySlot` wins when present; otherwise a single-court plan is built
  *   from totalRounds / matchesPerPlayer exactly as before.
  * @returns {{ schedule, warnings, stats, courtsBySlot, totalRounds, totalSlots,
@@ -1159,12 +1582,14 @@ export function generateSchedule(playerList, sessionConstraints = {}, options = 
 
   let courtsBySlot
   const warnings = []
+  const spareCourt = ['singles', 'twoVsOne'].includes(options.spareCourt) ? options.spareCourt : null
   if (options.courtsBySlot?.length) {
-    courtsBySlot = clampCourtPlan(options.courtsBySlot, n)
+    courtsBySlot = clampCourtPlan(options.courtsBySlot, n, spareCourt)
     const droppedSlots = courtsBySlot.filter((c, i) => c < options.courtsBySlot[i]).length
     if (droppedSlots > 0) {
+      const maxCourts = maxCourtsFor(n, spareCourt)
       warnings.push(
-        `${droppedSlots} round${droppedSlots > 1 ? 's' : ''} dropped to ${Math.floor(n / 4)} court${Math.floor(n / 4) > 1 ? 's' : ''}: ${n} players can't fill more.`,
+        `${droppedSlots} round${droppedSlots > 1 ? 's' : ''} dropped to ${maxCourts} court${maxCourts > 1 ? 's' : ''}: ${n} players can't fill more.`,
       )
     }
   } else {
@@ -1217,6 +1642,8 @@ export function generateSchedule(playerList, sessionConstraints = {}, options = 
       requiredPairs,
       partnerLimits,
       options.priorSchedule || [],
+      spareCourt,
+      options.extraMatchIds || [],
     )
     if (!result) continue
     if (!best || result.fitness > best.fitness) {

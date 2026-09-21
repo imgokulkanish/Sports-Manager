@@ -167,8 +167,13 @@ export function computePlayerStats(sessions, players) {
       // old winner-only score). It separates partnerships whose records are
       // identical - two pairs at 4-0 are only level until you ask how
       // convincingly each of them won.
+      // The pair in a 2 vs 1 (session court 2, see the schedule engine's note
+      // 8) played side by side against a handicapped solo player - not a
+      // partnership record worth ranking best partners on, so only true
+      // doubles count.
+      const isDoubles = round.team1.length === 2 && round.team2.length === 2
       const recordPartnership = (team, won, margin) => {
-        if (team.length !== 2) return
+        if (!isDoubles) return
         const [x, y] = team
         ;[[x, y], [y, x]].forEach(([self, mate]) => {
           if (!byId[self] || isGuestId(mate)) return
@@ -843,4 +848,60 @@ export function mostImproved(
     rows.push({ playerId: p.id, name: p.name, before, after, gain: after - before, recentMatches: r.totalMatches })
   }
   return leaderOf(rows, (r) => r.gain, (a, b) => b.recentMatches - a.recentMatches)
+}
+
+/**
+ * Where one player sits across the group's rankings, for the badges on the
+ * player modal ("No. 1 in win rate", "No. 2 in session MVPs"). Only podium
+ * places are returned, best rank first, and players level on a figure share
+ * the rank.
+ *
+ * Ranked among active players only - an archived regular who stopped coming
+ * shouldn't hold "No. 1" over the people still playing. Rate boards need
+ * MIN_RANKED_MATCHES behind them, for the same reason the leaderboards do;
+ * count boards only need the figure to be above zero, since "No. 1 in session
+ * wins" off zero wins would be a tie of everyone.
+ */
+export function playerHighlights(playerId, { statsById, players, sessions, achievementsById, maxRank = 3 }) {
+  const pool = (players || []).filter((p) => p.isActive && statsById[p.id])
+  if (!pool.some((p) => p.id === playerId)) return []
+  const ranked = (p) => statsById[p.id].totalMatches >= MIN_RANKED_MATCHES
+  const pct = (v) => Math.round(v * 100)
+
+  const boards = [
+    { label: 'win rate', eligible: ranked, value: (p) => pct(winRate(statsById[p.id])) },
+    { label: 'matches played', value: (p) => statsById[p.id].totalMatches },
+    { label: 'longest win streak', value: (p) => statsById[p.id].bestWinStreak },
+    {
+      label: 'point difference',
+      eligible: ranked,
+      // One decimal, the precision the Detailed tab shows, so a "+4.2" tie reads as one.
+      value: (p) => {
+        const avg = avgPoints(statsById[p.id])
+        return avg && avg.matches >= MIN_RANKED_MATCHES ? Math.round(avg.diff * 10) / 10 : null
+      },
+    },
+    { label: 'sessions won', value: (p) => achievementsById?.[p.id]?.sessionWins || 0 },
+    { label: 'session MVPs', value: (p) => achievementsById?.[p.id]?.mvpCount || 0 },
+    {
+      label: 'attendance',
+      value: (p) => {
+        const a = attendanceRate(p, sessions)
+        return a && a.eligible >= 3 ? pct(a.rate) : null
+      },
+    },
+  ]
+
+  const highlights = []
+  for (const { label, eligible = () => true, value } of boards) {
+    const rows = pool
+      .filter(eligible)
+      .map((p) => ({ id: p.id, v: value(p) }))
+      .filter((r) => r.v != null && r.v > 0)
+    const mine = rows.find((r) => r.id === playerId)
+    if (!mine) continue
+    const rank = rows.filter((r) => r.v > mine.v).length + 1
+    if (rank <= maxRank) highlights.push({ label, rank })
+  }
+  return highlights.sort((a, b) => a.rank - b.rank)
 }

@@ -28,8 +28,14 @@ export async function deleteMatchById(matchId, collectionName = DEFAULT_COLLECTI
   return deleteDoc(doc(db, collectionName, matchId))
 }
 
-export function useMatches() {
-  const { collection: COLLECTION } = useMatchVariant()
+/**
+ * `collectionOverride` lets a page read the OTHER variant's matches without
+ * being mounted under its provider — the player career table shows cricket
+ * and box cricket side by side.
+ */
+export function useMatches(collectionOverride = null) {
+  const variant = useMatchVariant()
+  const COLLECTION = collectionOverride || variant.collection
   const [matches, setMatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)

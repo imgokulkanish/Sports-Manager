@@ -4,8 +4,8 @@
 // Two situations, both common enough to be worth a dedicated flow:
 //
 //   1. Someone due on court is still on the way. Either swap them for a
-//      player who's resting this round, or push their round back and pull a
-//      round they aren't in forward, which buys them the ten minutes.
+//      player who's resting, or play a later match they aren't in on that
+//      court and push theirs back, which buys them the ten minutes.
 //   3. The teams just want mixing up - two players on court switch sides (or
 //      courts) for this match. Nobody comes on or off, so it isn't logged as
 //      a substitution.
@@ -14,8 +14,10 @@
 //      a scheduled player and are recorded as a guest of the session, so the
 //      match still lands on their record.
 //
-// Everything here edits the current round only. Later rounds are left exactly
+// Everything here edits the matches on court now. Later rounds are left exactly
 // as generated, because a substitution is a one-off, not a change of plan.
+// The courts run as separate queues, so the two matches on court can come
+// from different rounds - `slot` is simply what is being played right now.
 import React, { useMemo, useState } from 'react'
 import Avatar from './Avatar'
 import { BTN_OUTLINE, BTN_SOLID } from '../styles'
@@ -40,16 +42,15 @@ function PlayerButton({ id, name, subtitle, onClick, disabled }) {
 export default function RoundAdjustModal({
   open,
   onClose,
-  roundNumber,
-  totalRounds,
   slot,
   multiCourt,
   playersById,
-  laterSlots = [],
+  benchIds = [],
+  laterMatches = [],
   outsideCandidates = [],
   onSubstitute,
   onSwapPlayers,
-  onSwapRounds,
+  onPlayInstead,
   onAddGuest,
   busy = false,
 }) {
@@ -70,17 +71,6 @@ export default function RoundAdjustModal({
     ])
   }, [slot])
 
-  // The bench is shared across the courts playing this round. Union the
-  // resting lists and subtract anyone actually on court, so a player listed
-  // as resting on court 2's row while playing court 1 can't be offered.
-  const benchIds = useMemo(() => {
-    if (!slot) return []
-    const playing = new Set(onCourt.map((p) => p.id))
-    const bench = new Set()
-    slot.matches.forEach(({ match }) => (match.resting || []).forEach((id) => bench.add(id)))
-    return [...bench].filter((id) => !playing.has(id))
-  }, [slot, onCourt])
-
   const missing = missingId ? onCourt.find((p) => p.id === missingId) : null
 
   // Anyone on court who isn't the selected player's partner: the other team in
@@ -92,14 +82,16 @@ export default function RoundAdjustModal({
     )
   }, [onCourt, missing])
 
-  // Only rounds the missing player sits out are worth pulling forward - the
-  // whole point is to give them time to arrive.
-  const swappableSlots = useMemo(() => {
-    if (!missingId) return []
-    return laterSlots
-      .filter((s) => !s.matches.some(({ match }) => [...match.team1, ...match.team2].includes(missingId)))
+  // Matches that could go on this court instead: the missing player isn't in
+  // them (the whole point is to give them time to arrive), and nobody in them
+  // is playing on another court.
+  const swappableMatches = useMemo(() => {
+    if (!missing) return []
+    const busy = new Set(onCourt.filter((p) => p.matchIndex !== missing.matchIndex).map((p) => p.id))
+    return laterMatches
+      .filter(({ match }) => ![...match.team1, ...match.team2].some((id) => id === missing.id || busy.has(id)))
       .slice(0, 4)
-  }, [laterSlots, missingId])
+  }, [laterMatches, missing, onCourt])
 
   const close = () => {
     setMissingId(null)
@@ -119,8 +111,9 @@ export default function RoundAdjustModal({
     if (ok) close()
   }
 
-  const handleSwap = async (targetSlot) => {
-    const ok = await onSwapRounds(targetSlot)
+  const handleSwap = async (matchIndex) => {
+    if (!missing) return
+    const ok = await onPlayInstead(missing.court, matchIndex)
     if (ok) close()
   }
 
@@ -142,7 +135,9 @@ export default function RoundAdjustModal({
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 md:p-4">
       <div className="bg-white dark:bg-gray-900 rounded-t-2xl md:rounded-2xl w-full max-w-md max-h-[88vh] overflow-y-auto p-5 shadow-xl animate-[fadein_0.15s_ease-out]">
         <div className="flex items-start justify-between mb-1">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Adjust round {roundNumber}</h3>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            Adjust {multiCourt ? 'matches on court' : 'this match'}
+          </h3>
           <button
             onClick={close}
             className="text-xs text-gray-400 dark:text-gray-500 underline hover:text-gray-600 dark:hover:text-gray-300"
@@ -151,12 +146,12 @@ export default function RoundAdjustModal({
           </button>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          Round {roundNumber} of {totalRounds}. Later rounds keep their original pairings.
+          Changes apply to what is being played now. Later rounds keep their original pairings.
         </p>
 
         {!missing ? (
           <>
-            <p className={SECTION}>Which player needs changing this round?</p>
+            <p className={SECTION}>Which player needs changing?</p>
             <div className="flex flex-col gap-1.5">
               {onCourt.map(({ id, court, team }) => (
                 <PlayerButton
@@ -223,39 +218,37 @@ export default function RoundAdjustModal({
               </div>
             ) : (
               <p className="text-sm text-gray-400 dark:text-gray-500 mb-5">
-                Nobody is resting this round — everyone is already on court.
+                Nobody is resting — everyone is already on court.
               </p>
             )}
 
-            <p className={SECTION}>Play a later round now</p>
-            {swappableSlots.length > 0 ? (
+            <p className={SECTION}>
+              Play a later match {multiCourt ? `on Court ${missing.court} ` : ''}now
+            </p>
+            {swappableMatches.length > 0 ? (
               <div className="flex flex-col gap-1.5 mb-5">
-                {swappableSlots.map((s) => (
+                {swappableMatches.map(({ index, match, roundNumber }) => (
                   <button
-                    key={s.slot}
+                    key={index}
                     type="button"
                     disabled={busy}
-                    onClick={() => handleSwap(s.slot)}
+                    onClick={() => handleSwap(index)}
                     className={`flex items-start gap-3 w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-brand dark:hover:border-brand ${BTN_OUTLINE}`}
                   >
                     <span className="text-xs font-medium text-gray-400 dark:text-gray-500 w-9 shrink-0 mt-0.5">
-                      Rd {s.slot + 1}
+                      Rd {roundNumber}
                     </span>
-                    <span className="flex-1 min-w-0 flex flex-col gap-0.5 text-sm text-gray-900 dark:text-gray-100">
-                      {s.matches.map(({ index, match }) => (
-                        <span key={index} className="truncate">
-                          {match.team1.map(name).join(' & ')}
-                          <span className="text-gray-400 dark:text-gray-500 mx-1.5">vs</span>
-                          {match.team2.map(name).join(' & ')}
-                        </span>
-                      ))}
+                    <span className="flex-1 min-w-0 truncate text-sm text-gray-900 dark:text-gray-100">
+                      {match.team1.map(name).join(' & ')}
+                      <span className="text-gray-400 dark:text-gray-500 mx-1.5">vs</span>
+                      {match.team2.map(name).join(' & ')}
                     </span>
                   </button>
                 ))}
               </div>
             ) : (
               <p className="text-sm text-gray-400 dark:text-gray-500 mb-5">
-                No later round leaves {name(missing.id)} out — they are on court in all of them.
+                No later match can start now without {name(missing.id)} or someone already on court.
               </p>
             )}
 

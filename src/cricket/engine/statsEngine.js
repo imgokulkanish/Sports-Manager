@@ -26,10 +26,19 @@ function emptyStat(playerId, name) {
     fours: 0,
     sixes: 0,
     highestScore: 0,
+    highestScoreNotOut: false, // HS shows as "95*" on the career table
+    fifties: 0,
+    twentyFives: 0, // 25-49 — short-format games rarely reach 50, so 25s carry the signal 100s would elsewhere
+    ducks: 0,
+    catches: 0,
+    stumpings: 0,
     totalOvers: 0,
     totalBallsBowled: 0,
     totalRunsConceded: 0,
     totalWickets: 0,
+    maidens: 0,
+    twoWicketHauls: 0, // exactly 2 wickets in an innings
+    threeWicketHauls: 0, // 3+ wickets in an innings — short spells make 5-fors near impossible
     bestBowling: null, // { wickets, runs }
     motmCount: 0,
     mvpPointsHistory: [], // { matchId, date, points }
@@ -69,8 +78,25 @@ export function computePlayerStats(matches, players) {
         // shouldn't count against average, same as "not out" at the end of
         // an innings.
         if (b.isOut) s.timesOut += 1
-        s.highestScore = Math.max(s.highestScore, b.runs || 0)
+        const runs = b.runs || 0
+        // On a tie, the not-out innings wins — "34*" is the better record.
+        if (runs > s.highestScore || (runs === s.highestScore && !b.isOut)) {
+          s.highestScore = runs
+          s.highestScoreNotOut = !b.isOut
+        }
+        if (runs >= 50) s.fifties += 1
+        else if (runs >= 25) s.twentyFives += 1
+        if (runs === 0 && b.isOut) s.ducks += 1
         battedThisMatch.add(playerId)
+      })
+      // Fielding credit comes off the dismissed batsman's record — the
+      // fielder is only ever stored there. Quick Mode records no fielder,
+      // so its catches simply don't show up here.
+      Object.values(derived.batting || {}).forEach((b) => {
+        const fielder = b.fielderId && byId[b.fielderId]
+        if (!fielder) return
+        if (b.howOut === 'caught') fielder.catches += 1
+        else if (b.howOut === 'stumped') fielder.stumpings += 1
       })
       Object.entries(derived.bowling || {}).forEach(([playerId, b]) => {
         if (!byId[playerId]) return
@@ -85,6 +111,9 @@ export function computePlayerStats(matches, players) {
         s.totalBallsBowled += legalBallCountFromOvers(b.overs || 0)
         s.totalRunsConceded += b.runsConceded || 0
         s.totalWickets += b.wickets || 0
+        s.maidens += b.maidens || 0
+        if (b.wickets >= 3) s.threeWicketHauls += 1
+        else if (b.wickets === 2) s.twoWicketHauls += 1
         if (!s.bestBowling || b.wickets > s.bestBowling.wickets ||
           (b.wickets === s.bestBowling.wickets && b.runsConceded < s.bestBowling.runs)) {
           if (b.wickets > 0 || !s.bestBowling) {
@@ -213,6 +242,34 @@ export function bowlingStrikeRateLeaderboard(statsById, { minMatches = MIN_RELIA
     .filter((s) => s.matchesPlayed >= minMatches && bowlingStrikeRate(s) !== null)
     .map((s) => ({ ...s, bowlingStrikeRate: bowlingStrikeRate(s) }))
     .sort((a, b) => a.bowlingStrikeRate - b.bowlingStrikeRate) // ascending — fewer balls per wicket is better
+}
+
+/** Where this player sits on each Stats-page leaderboard (same
+ * MIN_STATS_MATCHES cut-off, so "No. 2 in economy" here matches what the
+ * Stats page shows). Only podium finishes are returned, best rank first.
+ * Tied values share a rank. */
+export function playerHighlights(statsById, playerId, { maxRank = 3, minMatches = MIN_STATS_MATCHES } = {}) {
+  const boards = [
+    { label: 'runs', rows: battingLeaderboard(statsById, { minMatches }), value: (r) => r.totalRuns },
+    { label: 'wickets', rows: bowlingLeaderboard(statsById, { minMatches }), value: (r) => r.totalWickets },
+    { label: 'MVP average', rows: mvpLeaderboard(statsById, { minMatches }), value: (r) => r.avgPoints },
+    { label: 'strike rate', rows: strikeRateLeaderboard(statsById, { minMatches }), value: (r) => r.strikeRate },
+    { label: 'batting average', rows: battingAverageLeaderboard(statsById, { minMatches }), value: (r) => r.average },
+    { label: 'economy', rows: economyLeaderboard(statsById, { minMatches }), value: (r) => r.economy },
+    { label: 'bowling average', rows: bowlingAverageLeaderboard(statsById, { minMatches }), value: (r) => r.average },
+    { label: 'bowling strike rate', rows: bowlingStrikeRateLeaderboard(statsById, { minMatches }), value: (r) => r.bowlingStrikeRate },
+  ]
+  const highlights = []
+  for (const { label, rows, value } of boards) {
+    const index = rows.findIndex((r) => r.playerId === playerId)
+    if (index === -1) continue
+    const mine = value(rows[index])
+    // Every leaderboard is already sorted best-first, so the first row with
+    // the same value is where the tie starts.
+    const rank = rows.findIndex((r) => value(r) === mine) + 1
+    if (rank <= maxRank) highlights.push({ label, rank })
+  }
+  return highlights.sort((a, b) => a.rank - b.rank)
 }
 
 export function attendanceCounts(matches, players, lastN = null) {

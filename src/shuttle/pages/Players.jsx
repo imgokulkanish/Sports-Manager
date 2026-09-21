@@ -14,11 +14,12 @@ import { useToast } from '../../shell/components/Toast'
 import { useAdmin } from '../../shell/components/Admin'
 
 export default function Players() {
-  const { players, loading, addPlayer, toggleActive, deletePlayer } = usePlayers()
+  const { players, loading, addPlayer, updatePlayer, toggleActive, deletePlayer } = usePlayers()
   const { statsById, sessions } = useStats()
   const { showToast } = useToast()
   const { isAdmin } = useAdmin()
   const [showAdd, setShowAdd] = useState(false)
+  const [editing, setEditing] = useState(null)
   const [selected, setSelected] = useState(null)
   const [filter, setFilter] = useState('active')
   const [sortByWinRate, setSortByWinRate] = useState(true)
@@ -42,6 +43,28 @@ export default function Players() {
     await addPlayer(data)
     setShowAdd(false)
     showToast(`${data.name} added`)
+  }
+
+  // Only the fields the form owns are written back - createdAt, isActive and
+  // constraints.doubleWith (set elsewhere) are left alone.
+  const handleEdit = async (data) => {
+    if (!editing) return
+    try {
+      await updatePlayer(editing.id, {
+        name: data.name,
+        constraints: {
+          ...(editing.constraints || {}),
+          forbiddenPartners: data.forbiddenPartners,
+          forbiddenOpponents: data.forbiddenOpponents,
+          earlyMatchRequired: data.earlyMatchRequired,
+        },
+      })
+      showToast(`${data.name} updated`)
+      setEditing(null)
+    } catch (error) {
+      console.error('updatePlayer failed', error)
+      showToast(error?.message || 'Could not save changes. Please try again.', 'error')
+    }
   }
 
   return (
@@ -115,6 +138,13 @@ export default function Players() {
       )}
 
       <PlayerFormModal open={showAdd} onClose={() => setShowAdd(false)} onSubmit={handleAdd} allPlayers={players} />
+      <PlayerFormModal
+        open={Boolean(editing)}
+        player={editing}
+        onClose={() => setEditing(null)}
+        onSubmit={handleEdit}
+        allPlayers={players}
+      />
       <PlayerDetailModal
         key={selected?.id}
         player={selected}
@@ -122,8 +152,17 @@ export default function Players() {
         playersById={playersById}
         sessions={sessions}
         achievements={selected ? achievementsById[selected.id] : null}
-        canDelete={isAdmin}
+        statsById={statsById}
+        players={players}
+        achievementsById={achievementsById}
+        canManage={isAdmin}
         onClose={() => setSelected(null)}
+        onEdit={(player) => {
+          // Close the detail sheet first - otherwise the two full-screen
+          // modals stack on top of each other.
+          setSelected(null)
+          setEditing(player)
+        }}
         onToggleActive={(id, active) => {
           toggleActive(id, active)
           showToast(active ? 'Player unarchived' : 'Player archived')

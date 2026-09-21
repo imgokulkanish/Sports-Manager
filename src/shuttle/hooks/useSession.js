@@ -18,8 +18,6 @@ import { isGuestId, pruneGuestNames } from '../engine/guests'
 import {
   substituteInSchedule,
   swapPlayersInSlot,
-  swapSlots,
-  swapCourtPlanSlots,
   moveSlot,
   moveCourtPlanSlot,
   guestIdsIn,
@@ -28,6 +26,12 @@ import {
   replacePendingMatches,
   generateSchedule,
   applySessionOverrides,
+  maxCourtsFor,
+  resolveOnCourt,
+  compactOnCourt,
+  startedMatches,
+  swapMatchPlaces,
+  playedCourt,
 } from '../engine/scheduleEngine'
 
 const COLLECTION = 'sessions'
@@ -185,22 +189,86 @@ export function useSession(sessionId) {
     [sessionId, session],
   )
 
-  const recordScore = useCallback(
-    async (roundIndex, winner, points) => {
-      const entry = points ? { winner, points } : { winner }
-      const newScores = { ...(session?.scores || {}), [roundIndex]: entry }
-      await updateSession({ scores: newScores })
-    },
-    [session, updateSession],
+  // What each court is playing right now - see resolveOnCourt. Read fresh in
+  // every write below so the court that didn't change hands is pinned to the
+  // match it is actually in the middle of.
+  const currentOnCourt = useCallback(
+    () => resolveOnCourt(session?.schedule || [], session?.scores || {}, session?.onCourt || {}),
+    [session],
   )
 
+  /**
+   * Record a result and hand the freed court its next match in the same write.
+   * The entry keeps the court it was played on (which court-2 bookings are
+   * counted against) and when, so "undo last" can find the latest result
+   * across courts that no longer finish in schedule order.
+   */
+  const recordScore = useCallback(
+    async (roundIndex, winner, points) => {
+      const schedule = session?.schedule || []
+      const before = currentOnCourt()
+      const onEntry = Object.entries(before).find(([, index]) => index === roundIndex)
+      const court = onEntry ? Number(onEntry[0]) : schedule[roundIndex]?.court ?? 1
+      const entry = { winner, ...(points ? { points } : {}), court, at: Date.now() }
+      const newScores = { ...(session?.scores || {}), [roundIndex]: entry }
+      const onCourt = compactOnCourt(resolveOnCourt(schedule, newScores, before))
+      await updateSession({ scores: newScores, onCourt })
+    },
+    [session, updateSession, currentOnCourt],
+  )
+
+  /**
+   * Take a result back off and put the match back on the court it was played
+   * on - an undo is nearly always a mis-tap, so the players are still there.
+   * Whatever that court had just been handed goes back in the queue, as does
+   * anything on another court sharing a player with it.
+   */
   const undoLastScore = useCallback(
     async (roundIndex) => {
+      const schedule = session?.schedule || []
+      const entry = session?.scores?.[roundIndex]
       const newScores = { ...(session?.scores || {}) }
       delete newScores[roundIndex]
-      await updateSession({ scores: newScores })
+      if (!schedule[roundIndex]) {
+        await updateSession({ scores: newScores })
+        return
+      }
+      const court = playedCourt(schedule, roundIndex, entry)
+      const players = new Set([...schedule[roundIndex].team1, ...schedule[roundIndex].team2])
+      const pinned = {}
+      Object.entries(currentOnCourt()).forEach(([c, index]) => {
+        if (!Number.isInteger(index) || Number(c) === court) return
+        if ([...schedule[index].team1, ...schedule[index].team2].some((id) => players.has(id))) return
+        pinned[c] = index
+      })
+      pinned[court] = roundIndex
+      const onCourt = compactOnCourt(resolveOnCourt(schedule, newScores, pinned))
+      await updateSession({ scores: newScores, onCourt })
     },
-    [session, updateSession],
+    [session, updateSession, currentOnCourt],
+  )
+
+  /**
+   * Put a different match on `court` - the one due there is waiting on a
+   * player who hasn't arrived, or the court's booked matches are done and the
+   * group wants to keep it going. The match it replaces trades places with the
+   * one brought on (see swapMatchPlaces), so it comes round again later
+   * instead of being handed straight back to the next free court.
+   */
+  const playOnCourt = useCallback(
+    async (court, matchIndex) => {
+      const current = session?.schedule || []
+      if (!current[matchIndex] || session?.scores?.[matchIndex]) return false
+      const before = currentOnCourt()
+      const replaced = before[court]
+      const schedule = Number.isInteger(replaced) ? swapMatchPlaces(current, replaced, matchIndex) : current
+      const pinned = { ...before, [court]: matchIndex }
+      const onCourt = compactOnCourt(resolveOnCourt(schedule, session?.scores || {}, pinned))
+      if (onCourt[court] !== matchIndex) return false
+      await updateSession(schedule === current ? { onCourt } : { schedule, onCourt })
+      return true
+    },
+    [session, updateSession, currentOnCourt],
   )
 
   // --- Live schedule adjustments ---------------------------------------------
@@ -218,10 +286,16 @@ export function useSession(sessionId) {
   const substitutePlayer = useCallback(
     async (matchIndex, outId, inId) => {
       const current = session?.schedule || []
-      const schedule = substituteInSchedule(current, matchIndex, outId, inId)
+      const live = currentOnCourt()
+      const busyIds = Object.values(live)
+        .filter(Number.isInteger)
+        .flatMap((index) => [...current[index].team1, ...current[index].team2])
+      const schedule = substituteInSchedule(current, matchIndex, outId, inId, { busyIds })
       if (schedule === current) return false
       await updateSession({
         schedule,
+        // Pinned, so the edit can't shift which match a court is in the middle of.
+        onCourt: compactOnCourt(live),
         // Recomputed from the schedule rather than appended to, so undoing a
         // substitution takes the guest back off the session by itself.
         guestIds: guestIdsIn(schedule, session?.playerIds || []),
@@ -232,47 +306,31 @@ export function useSession(sessionId) {
       })
       return true
     },
-    [session, updateSession],
+    [session, updateSession, currentOnCourt],
   )
 
   /**
-   * Switch two on-court players between teams (or courts) for this round only.
+   * Switch two on-court players between teams (or courts) for this match only.
    * Deliberately not logged in `substitutions` - see swapPlayersInSlot.
    */
   const swapPlayers = useCallback(
     async (matchIndex, idA, idB) => {
       const current = session?.schedule || []
-      const schedule = swapPlayersInSlot(current, matchIndex, idA, idB)
+      const live = compactOnCourt(currentOnCourt())
+      const schedule = swapPlayersInSlot(current, matchIndex, idA, idB, { matchIndices: Object.values(live) })
       if (schedule === current) return false
-      await updateSession({ schedule })
+      await updateSession({ schedule, onCourt: live })
       return true
     },
-    [session, updateSession],
-  )
-
-  /**
-   * Trade the running order of two rounds, so a round the late player isn't
-   * in can be played now and theirs pushed back. Only ever called with rounds
-   * that haven't been scored yet.
-   */
-  const swapRounds = useCallback(
-    async (slotA, slotB) => {
-      const current = session?.schedule || []
-      const schedule = swapSlots(current, slotA, slotB)
-      if (schedule === current) return false
-      const data = { schedule }
-      const plan = swapCourtPlanSlots(session?.courtsBySlot, slotA, slotB)
-      if (plan !== session?.courtsBySlot) data.courtsBySlot = plan
-      await updateSession(data)
-      return true
-    },
-    [session, updateSession],
+    [session, updateSession, currentOnCourt],
   )
 
   /**
    * Reorder the rounds still to come, dragging one round to another position
    * and sliding the ones in between along - see moveSlot for why that isn't
-   * the same operation as swapRounds. Only ever called with unscored rounds.
+   * the same operation as swapSlots. Only ever called with rounds that still
+   * have matches to play; a finished or on-court match moving with its round
+   * only changes where it is listed, since results and `onCourt` go by index.
    */
   const moveRound = useCallback(
     async (fromSlot, toSlot) => {
@@ -302,7 +360,11 @@ export function useSession(sessionId) {
     async (playerId, playerRecords) => {
       if (!playerId || (session?.playerIds || []).includes(playerId)) return { ok: false, reason: 'already-in' }
       const playerIds = [...(session?.playerIds || []), playerId]
-      const pending = pendingSlots(session?.schedule || [], session?.scores || {})
+      const pending = pendingSlots(
+        session?.schedule || [],
+        session?.scores || {},
+        startedMatches(session?.schedule || [], session?.scores || {}, session?.onCourt),
+      )
       if (!pending) return { ok: false, reason: 'nothing-pending' }
 
       const roster = playerIds.map((id) => playerRecords.find((p) => p.id === id)).filter(Boolean)
@@ -316,6 +378,10 @@ export function useSession(sessionId) {
       const generated = generateSchedule(applySessionOverrides(roster), {}, {
         courtsBySlot: pending.courtsBySlot,
         priorSchedule,
+        // Each pending round keeps its court count; whether a court plays
+        // doubles, singles or 2 vs 1 is re-decided for the bigger group (7 + 1
+        // late arrival turns court 2 back into a doubles court).
+        spareCourt: session?.spareCourt || null,
       })
       // A court needs four players and the constraints have to be satisfiable;
       // if the draw fails, the session is left untouched rather than half-edited.
@@ -345,10 +411,12 @@ export function useSession(sessionId) {
 
       const existingSlots = groupBySlot(session?.schedule || [])
       const nextSlot = existingSlots.length ? Math.max(...existingSlots.map((entry) => entry.slot)) + 1 : 0
-      const courtCount = Math.min(session?.courtsBySlot?.at(-1) || 1, Math.floor(roster.length / 4))
+      const spareCourt = session?.spareCourt || null
+      const courtCount = Math.min(session?.courtsBySlot?.at(-1) || 1, maxCourtsFor(roster.length, spareCourt))
       const generated = generateSchedule(applySessionOverrides(roster), {}, {
         courtsBySlot: [courtCount],
         priorSchedule: session?.schedule || [],
+        spareCourt,
       })
       if (!generated) return { ok: false, reason: 'generate-failed' }
 
@@ -409,7 +477,7 @@ export function useSession(sessionId) {
     undoLastScore,
     substitutePlayer,
     swapPlayers,
-    swapRounds,
+    playOnCourt,
     moveRound,
     addPlayerAndRedraw,
     addExtraRound,

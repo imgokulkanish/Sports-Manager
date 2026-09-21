@@ -13,6 +13,7 @@ import {
   courtPlanForMatchesPerPlayer,
   clampCourtPlan,
   summarizeCourtPlan,
+  courtSizesForSlot,
   DEFAULT_MINUTES_PER_MATCH,
 } from '../engine/scheduleEngine'
 import ScheduleTable from '../components/ScheduleTable'
@@ -57,6 +58,9 @@ export default function NewSession() {
   // injury. Their spare matches go to the rest of the group, not to a shorter
   // session, since the court time is already booked.
   const [matchCaps, setMatchCaps] = useState({})
+  // When the matches can't be shared out evenly (7 players, 38 spots = 5 each
+  // with 3 over), who takes the spares. Unpicked spares land at random.
+  const [extraMatchIds, setExtraMatchIds] = useState([])
   const [avoidPairs, setAvoidPairs] = useState([])
   const [avoidA, setAvoidA] = useState('')
   const [avoidB, setAvoidB] = useState('')
@@ -70,6 +74,13 @@ export default function NewSession() {
   const [totalMinutes, setTotalMinutes] = useState('120')
   const [extraCourtMinutes, setExtraCourtMinutes] = useState('60')
   const [minutesPerMatch, setMinutesPerMatch] = useState(String(DEFAULT_MINUTES_PER_MATCH))
+  // With too few players for two doubles courts (6 or 7), what court 2 plays:
+  // 'singles', 'twoVsOne' (a pair against one), or 'none' to leave it empty.
+  // Only asked when it applies.
+  const [spareCourtChoice, setSpareCourtChoice] = useState('singles')
+  // 2 vs 1 handicap: the solo player wins on reaching this, the pair still
+  // needs the normal winning score.
+  const [soloTarget, setSoloTarget] = useState('')
   const [result, setResult] = useState(null)
   const [generating, setGenerating] = useState(false)
   const [confirmStart, setConfirmStart] = useState(false)
@@ -97,18 +108,33 @@ export default function NewSession() {
   // court covers the same opening stretch either way - only the total length
   // moves - so switching between them never reshuffles which rounds have two
   // courts.
+  // A court 2 format only matters when doubles alone can't fill it: 6 players
+  // can play singles there, 7 can play singles or 2 vs 1.
+  const spareSizeFor = (format) => courtSizesForSlot(2, playingPlayers.length, format)[1]
+  const singlesPossible = extraCourt && spareSizeFor('singles') === 2
+  const twoVsOnePossible = extraCourt && spareSizeFor('twoVsOne') === 3
+  // A 2 vs 1 pick falls back to singles if a player drops out and it no longer fits.
+  const spareCourt =
+    !singlesPossible || spareCourtChoice === 'none'
+      ? null
+      : spareCourtChoice === 'twoVsOne' && twoVsOnePossible
+        ? 'twoVsOne'
+        : 'singles'
+  // The solo side can't need more than the pair does, or it's no handicap.
+  const soloTargetScore = Math.max(1, Math.min(winningScore - 1, parseInt(soloTarget, 10) || Math.round(winningScore * 0.7)))
+
   const courtsBySlot = useMemo(() => {
     if (!extraCourt || playingPlayers.length < 4) return null
     const extraSlots = Math.floor((parseInt(extraCourtMinutes, 10) || 0) / perMatchMins)
     const plan = targetMatches
-      ? courtPlanForMatchesPerPlayer(playingPlayers.length, targetMatches, extraSlots)
+      ? courtPlanForMatchesPerPlayer(playingPlayers.length, targetMatches, extraSlots, spareCourt)
       : courtPlanFromMinutes(parseInt(totalMinutes, 10) || 0, parseInt(extraCourtMinutes, 10) || 0, perMatchMins)
-    return clampCourtPlan(plan, playingPlayers.length)
-  }, [extraCourt, totalMinutes, extraCourtMinutes, perMatchMins, targetMatches, playingPlayers.length])
+    return clampCourtPlan(plan, playingPlayers.length, spareCourt)
+  }, [extraCourt, totalMinutes, extraCourtMinutes, perMatchMins, targetMatches, playingPlayers.length, spareCourt])
 
   const planSummary = useMemo(
-    () => (courtsBySlot ? summarizeCourtPlan(courtsBySlot, playingPlayers.length) : null),
-    [courtsBySlot, playingPlayers.length],
+    () => (courtsBySlot ? summarizeCourtPlan(courtsBySlot, playingPlayers.length, spareCourt) : null),
+    [courtsBySlot, playingPlayers.length, spareCourt],
   )
   // What the booked time alone would give, used for the "leave blank" hint and
   // the placeholder, so the hint doesn't change as you type a target.
@@ -117,9 +143,10 @@ export default function NewSession() {
     const plan = clampCourtPlan(
       courtPlanFromMinutes(parseInt(totalMinutes, 10) || 0, parseInt(extraCourtMinutes, 10) || 0, perMatchMins),
       playingPlayers.length,
+      spareCourt,
     )
-    return summarizeCourtPlan(plan, playingPlayers.length)
-  }, [extraCourt, totalMinutes, extraCourtMinutes, perMatchMins, playingPlayers.length])
+    return summarizeCourtPlan(plan, playingPlayers.length, spareCourt)
+  }, [extraCourt, totalMinutes, extraCourtMinutes, perMatchMins, playingPlayers.length, spareCourt])
 
   // What an unlimited player gets this session, whichever way the length was
   // decided - the basis for the default cap and the "everyone else" hint.
@@ -136,11 +163,35 @@ export default function NewSession() {
   const maxCapValue = Math.max(1, totalRoundsPlanned)
   const cappedPlayers = playingPlayers.filter((p) => matchCaps[p.id] != null)
 
+  // How many players end up one match ahead of the rest. Ignores match caps:
+  // a capped player's spare matches go to everyone else anyway.
+  const spareMatches =
+    playingPlayers.length < 4
+      ? 0
+      : extraCourt && planSummary
+        ? planSummary.playersWithOneExtra
+        : summarizeCourtPlan(Array(totalRoundsPlanned).fill(1), playingPlayers.length).playersWithOneExtra
+  // Picks survive a player being deselected or capped without going stale.
+  const extraMatchPicks = extraMatchIds
+    .filter((id) => playingPlayers.some((p) => p.id === id) && matchCaps[id] == null)
+    .slice(0, spareMatches)
+  const toggleExtraMatch = (id) =>
+    setExtraMatchIds(
+      extraMatchPicks.includes(id)
+        ? extraMatchPicks.filter((x) => x !== id)
+        : extraMatchPicks.length < spareMatches
+          ? [...extraMatchPicks, id]
+          : extraMatchPicks,
+    )
+
   const estimatedMinutes = planSummary ? planSummary.slots * perMatchMins : 0
   const overrunMinutes = Math.max(0, estimatedMinutes - (parseInt(totalMinutes, 10) || 0))
   const twoCourtRounds = courtsBySlot ? courtsBySlot.filter((c) => c > 1).length : 0
   // Round 1 has the most players on court, so it sets the warm-up rest ceiling.
-  const round1OnCourt = 4 * (courtsBySlot ? courtsBySlot[0] : 1)
+  const round1OnCourt = courtSizesForSlot(courtsBySlot ? courtsBySlot[0] : 1, playingPlayers.length, spareCourt)
+    .reduce((sum, size) => sum + size, 0)
+  // Players on court in a two-court round: 8, or 6 when court 2 plays singles.
+  const twoCourtOnCourt = courtSizesForSlot(2, playingPlayers.length, spareCourt).reduce((sum, size) => sum + size, 0)
   const maxWarmupRest = Math.max(0, playingPlayers.length - round1OnCourt)
   const tooManyWarmupRest = warmupRest.length > maxWarmupRest
 
@@ -238,6 +289,8 @@ export default function NewSession() {
         // courtsBySlot already folds in the matches-per-player target when one
         // is set, so it wins outright rather than being combined with mpp.
         ...(courtsBySlot ? { courtsBySlot } : mpp ? { matchesPerPlayer: mpp } : {}),
+        spareCourt,
+        extraMatchIds: extraMatchPicks,
         warmupRestIds: warmupRest,
         matchCaps,
         requiredPairs,
@@ -263,6 +316,8 @@ export default function NewSession() {
       // can't silently drop the second court or a custom round count.
       const res = regenerateSchedule(effectivePlayers, {}, {
         courtsBySlot: result.courtsBySlot,
+        spareCourt,
+        extraMatchIds: extraMatchPicks,
         warmupRestIds: warmupRest,
         matchCaps,
         requiredPairs,
@@ -291,6 +346,10 @@ export default function NewSession() {
         playerIds: selectedIds,
         schedule: result.schedule,
         courtsBySlot: result.courtsBySlot,
+        // Remembered so a late arrival's redraw or an extra round plans courts
+        // the same way.
+        spareCourt,
+        ...(spareCourt === 'twoVsOne' ? { soloTarget: soloTargetScore } : {}),
       })
       showToast('Session started')
       navigate(`/shuttle/session/${sessionId}/live`)
@@ -478,6 +537,75 @@ export default function NewSession() {
                         />
                       </div>
                     </div>
+
+                    {singlesPossible && (
+                      <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-800">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          {playingPlayers.length} players can't fill two doubles courts. Court 2 plays:
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 mt-2">
+                          {[
+                            { value: 'singles', label: 'Singles', hint: `1 v 1 · ${playingPlayers.length - 6 || 'nobody'} rest${playingPlayers.length - 6 === 1 ? 's' : ''}` },
+                            ...(twoVsOnePossible
+                              ? [{ value: 'twoVsOne', label: '2 vs 1', hint: 'Pair v solo · nobody rests' }]
+                              : []),
+                            { value: 'none', label: 'Leave empty', hint: 'One court only' },
+                          ].map((option) => {
+                            const active = (spareCourt || 'none') === option.value
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => setSpareCourtChoice(option.value)}
+                                className={`rounded-lg border px-2 py-2 text-left transition-colors ${
+                                  active
+                                    ? 'bg-brand-light dark:bg-brand/15 border-brand dark:border-brand/60'
+                                    : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                }`}
+                              >
+                                <span
+                                  className={`block text-sm font-medium ${
+                                    active ? 'text-brand dark:text-emerald-400' : 'text-gray-900 dark:text-gray-100'
+                                  }`}
+                                >
+                                  {option.label}
+                                </span>
+                                <span className="block text-[11px] text-gray-400 dark:text-gray-500">{option.hint}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        {spareCourt === 'twoVsOne' && (
+                          <div className="mt-3 flex items-center gap-2 flex-wrap">
+                            <label className="text-xs text-gray-600 dark:text-gray-300" htmlFor="solo-target">
+                              Solo player wins at
+                            </label>
+                            <input
+                              id="solo-target"
+                              type="number"
+                              min={1}
+                              max={winningScore - 1}
+                              value={soloTarget}
+                              placeholder={String(Math.round(winningScore * 0.7))}
+                              onChange={(e) => setSoloTarget(e.target.value)}
+                              className="w-16 text-center border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-lg px-1.5 py-1 text-sm"
+                            />
+                            <span className="text-xs text-gray-600 dark:text-gray-300">
+                              — the pair still needs {winningScore}.
+                            </span>
+                          </div>
+                        )}
+
+                        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-2">
+                          {spareCourt === 'twoVsOne'
+                            ? `First to their own target wins: ${soloTargetScore} for the solo player, ${winningScore} for the pair. Everyone takes a solo turn in rotation, never two rounds running.`
+                            : spareCourt === 'singles'
+                              ? 'Singles turns are shared out evenly and nobody plays singles twice in a row.'
+                              : 'Court 2 goes unused - rounds run on one court with the rest sitting out.'}
+                        </p>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -529,7 +657,9 @@ export default function NewSession() {
                   </p>
                   <p className="text-xs text-green-800 dark:text-green-300">
                     <span className="font-semibold">{planSummary.slots} rounds</span> ·{' '}
-                    {planSummary.totalMatches} matches ·{' '}
+                    {planSummary.totalMatches} matches
+                    {planSummary.singlesMatches > 0 ? ` (${planSummary.singlesMatches} singles)` : ''}
+                    {planSummary.twoVsOneMatches > 0 ? ` (${planSummary.twoVsOneMatches} 2 vs 1)` : ''} ·{' '}
                     <span className="font-semibold">
                       {planSummary.matchesPerPlayer}
                       {planSummary.playersWithOneExtra > 0 ? `-${planSummary.matchesPerPlayer + 1}` : ''} matches
@@ -539,13 +669,18 @@ export default function NewSession() {
                   <p className="text-[11px] text-green-700 dark:text-green-400/80 mt-0.5">
                     {twoCourtRounds > 0 ? (
                       <>
-                        Rounds 1-{twoCourtRounds} on 2 courts ({playingPlayers.length - 8} resting), then 1 court (
-                        {playingPlayers.length - 4} resting).
+                        Rounds 1-{twoCourtRounds} on 2 courts
+                        {spareCourt === 'singles' ? ' — doubles + singles' : spareCourt === 'twoVsOne' ? ' — doubles + 2 vs 1' : ''} (
+                        {playingPlayers.length - twoCourtOnCourt} resting)
+                        {twoCourtRounds < planSummary.slots
+                          ? `, then 1 court (${playingPlayers.length - 4} resting).`
+                          : '.'}
                       </>
                     ) : playingPlayers.length < 8 ? (
                       <>
-                        {playingPlayers.length} players can only fill 1 court — running as a normal
-                        single-court session.
+                        {playingPlayers.length} players can only fill 1 doubles court — running as a normal
+                        single-court session
+                        {singlesPossible ? '. Pick a format for court 2 above to use both courts.' : '.'}
                       </>
                     ) : (
                       <>No second-court time set — running as a normal single-court session.</>
@@ -637,6 +772,45 @@ export default function NewSession() {
                   </p>
                 )}
               </div>
+
+              {spareMatches > 0 && (
+                <div>
+                  <p className={`${LABEL} mb-2`}>
+                    Who gets the extra match? (optional, pick up to {spareMatches})
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {playingPlayers
+                      .filter((p) => matchCaps[p.id] == null)
+                      .map((p) => {
+                        const picked = extraMatchPicks.includes(p.id)
+                        const full = !picked && extraMatchPicks.length >= spareMatches
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => toggleExtraMatch(p.id)}
+                            disabled={full}
+                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                              picked
+                                ? 'bg-brand-light dark:bg-brand/15 border-brand-border dark:border-brand/40 text-brand dark:text-emerald-400'
+                                : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                            }`}
+                          >
+                            {p.name}
+                          </button>
+                        )
+                      })}
+                  </div>
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                    Matches can't be split evenly: {spareMatches} player{spareMatches > 1 ? 's' : ''} will play one
+                    more than the rest.{' '}
+                    {extraMatchPicks.length < spareMatches
+                      ? extraMatchPicks.length
+                        ? `The other ${spareMatches - extraMatchPicks.length} go${spareMatches - extraMatchPicks.length > 1 ? '' : 'es'} to random players.`
+                        : 'Tap names to choose who, otherwise it is random.'
+                      : ''}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <p className={`${LABEL} mb-2`}>Needs to warm up? Rest them in Round 1 (optional)</p>

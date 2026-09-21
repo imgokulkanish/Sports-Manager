@@ -1,5 +1,6 @@
 // components/RecentResults.jsx
 import React, { useState } from 'react'
+import { matchFormatLabel } from '../engine/scheduleEngine'
 
 const PREVIEW = 5
 
@@ -7,10 +8,10 @@ const PREVIEW = 5
  * Rounds already in the book, newest first, for the live session screen.
  *
  * Court-side this answers the question the leaderboard can't: "who did we
- * just beat, and how close was it". Only rounds *before* the one on court are
- * listed - the match being played (and, on two courts, its finished partner)
- * is already on screen above as a result card with its own Undo, so repeating
- * it here would read as two separate games.
+ * just beat, and how close was it". Every result is listed, newest first by
+ * when it was entered: the courts run as separate queues, so a match from a
+ * later round can land before one from an earlier round. `court` is the court
+ * it was actually played on.
  *
  * Collapsed to the five most recent by default. A full evening is a dozen-odd
  * rounds and the list sits above nothing but the footer, so the rest is one
@@ -57,7 +58,10 @@ export default function RecentResults({ rows, isMultiCourt, playersById }) {
               </span>
               <span className="flex-1 min-w-0 text-gray-900 dark:text-gray-100 truncate">
                 {isMultiCourt && (
-                  <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 mr-1.5">C{court}</span>
+                  <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 mr-1.5">
+                    C{court}
+                    {matchFormatLabel(match) === 'Singles' ? ' · S' : matchFormatLabel(match) ? ' · 2v1' : ''}
+                  </span>
                 )}
                 <span className="font-medium">{winners.map(name).join(' & ')}</span>
                 <span className="text-gray-400 dark:text-gray-500 mx-1.5">beat</span>

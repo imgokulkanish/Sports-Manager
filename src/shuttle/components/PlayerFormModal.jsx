@@ -1,14 +1,32 @@
 // components/PlayerFormModal.jsx
-import React, { useState } from 'react'
+//
+// One modal for both adding and editing. Pass a `player` and it opens
+// prefilled in edit mode; leave it null and it's the add form. Everything on
+// here is stored on the player doc — stats are derived from sessions, so
+// there's nothing editable about them.
+import React, { useEffect, useState } from 'react'
 import { BTN_SOLID } from '../styles'
 
-export default function PlayerFormModal({ open, onClose, onSubmit, allPlayers = [] }) {
+export default function PlayerFormModal({ open, onClose, onSubmit, allPlayers = [], player = null }) {
   const [name, setName] = useState('')
   const [forbiddenPartners, setForbiddenPartners] = useState([])
   const [forbiddenOpponents, setForbiddenOpponents] = useState([])
   const [earlyMatchRequired, setEarlyMatchRequired] = useState(false)
+  const isEdit = Boolean(player)
+
+  useEffect(() => {
+    if (!open) return
+    const c = player?.constraints || {}
+    setName(player?.name || '')
+    setForbiddenPartners(c.forbiddenPartners || [])
+    setForbiddenOpponents(c.forbiddenOpponents || [])
+    setEarlyMatchRequired(Boolean(c.earlyMatchRequired))
+  }, [open, player])
 
   if (!open) return null
+
+  // Nobody can be their own forbidden partner.
+  const others = allPlayers.filter((p) => p.id !== player?.id)
 
   const toggle = (arr, setArr, id) => {
     setArr(arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id])
@@ -30,7 +48,9 @@ export default function PlayerFormModal({ open, onClose, onSubmit, allPlayers = 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 p-4">
       <div className="bg-white dark:bg-gray-900 rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 shadow-xl max-h-[85vh] overflow-y-auto animate-[fadein_0.15s_ease-out]">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Add Player</h3>
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">
+          {isEdit ? 'Edit Player' : 'Add Player'}
+        </h3>
 
         <label className="text-xs text-gray-500 dark:text-gray-400">Name</label>
         <input
@@ -40,11 +60,11 @@ export default function PlayerFormModal({ open, onClose, onSubmit, allPlayers = 
           placeholder="Player name"
         />
 
-        {allPlayers.length > 0 && (
+        {others.length > 0 && (
           <>
             <label className="text-xs text-gray-500 dark:text-gray-400">Forbidden partners (never paired)</label>
             <div className="flex flex-wrap gap-1.5 mt-1 mb-4">
-              {allPlayers.map((p) => (
+              {others.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => toggle(forbiddenPartners, setForbiddenPartners, p.id)}
@@ -61,7 +81,7 @@ export default function PlayerFormModal({ open, onClose, onSubmit, allPlayers = 
 
             <label className="text-xs text-gray-500 dark:text-gray-400">Forbidden opponents (never opposite team)</label>
             <div className="flex flex-wrap gap-1.5 mt-1 mb-4">
-              {allPlayers.map((p) => (
+              {others.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => toggle(forbiddenOpponents, setForbiddenOpponents, p.id)}
@@ -103,7 +123,7 @@ export default function PlayerFormModal({ open, onClose, onSubmit, allPlayers = 
             disabled={!name.trim()}
             className={`flex-1 rounded-lg bg-brand py-2.5 text-sm font-medium text-white ${BTN_SOLID}`}
           >
-            Add Player
+            {isEdit ? 'Save Changes' : 'Add Player'}
           </button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 // components/ScheduleTable.jsx
 import React from 'react'
 import Avatar from './Avatar'
-import { orderedMatches } from '../engine/scheduleEngine'
+import { orderedMatches, matchFormatLabel } from '../engine/scheduleEngine'
 
 function TeamCell({ ids, playersById, highlight }) {
   return (
@@ -57,7 +57,10 @@ export default function ScheduleTable({ schedule, playersById, scores = {}, comp
               >
                 <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{slot + 1}</td>
                 {multiCourt && (
-                  <td className="px-3 py-2 text-gray-400 dark:text-gray-500 text-xs">{court}</td>
+                  <td className="px-3 py-2 text-gray-400 dark:text-gray-500 text-xs whitespace-nowrap">
+                    {court}
+                    {matchFormatLabel(round) ? ` · ${matchFormatLabel(round)}` : ''}
+                  </td>
                 )}
                 <td className="px-3 py-2">
                   <TeamCell ids={round.team1} playersById={playersById} highlight={winner === 1} />
