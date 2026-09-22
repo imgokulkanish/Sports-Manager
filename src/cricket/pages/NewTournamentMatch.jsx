@@ -21,7 +21,9 @@ const CUSTOM_STAGE = '__custom__'
  *
  * teamA is our squad; teamB is the external opponent — name only, no roster,
  * no captain, and no draft step at all. Nothing about their players is ever
- * written.
+ * written. Our captain IS recorded (there's no draft to pick one, so it's a
+ * plain select) — captaincy stats read `teamA.captainId` off the match, and
+ * a tournament round counts the same as any other match there.
  */
 export default function NewTournamentMatch() {
   const { tid } = useParams()
@@ -45,6 +47,7 @@ export default function NewTournamentMatch() {
   const [wonToss, setWonToss] = useState(true)
   const [tossDecision, setTossDecision] = useState('bat')
   const [playingIds, setPlayingIds] = useState([])
+  const [captainId, setCaptainId] = useState('')
   const [confirmStart, setConfirmStart] = useState(false)
   const [startingMatch, setStartingMatch] = useState(false)
 
@@ -57,6 +60,13 @@ export default function NewTournamentMatch() {
   useEffect(() => {
     setPlayingIds(squadIds)
   }, [squadIds])
+
+  // A benched player can't be captain — clearing here rather than hiding the
+  // stale id means the Start button disables itself until a new one is
+  // picked, instead of silently saving whoever was selected first.
+  useEffect(() => {
+    setCaptainId((prev) => (prev && playingIds.includes(prev) ? prev : ''))
+  }, [playingIds])
 
   // Default the date to the tournament's own date — every round is the same day.
   useEffect(() => {
@@ -90,7 +100,7 @@ export default function NewTournamentMatch() {
         tournamentId,
         tournamentStage: stage,
         opponentName: opponent,
-        teamA: { name: ourTeamName.trim() || 'Us', captainId: null, playerIds: playingIds, umpireId: null },
+        teamA: { name: ourTeamName.trim() || 'Us', captainId, playerIds: playingIds, umpireId: null },
         // External opponent: a LABEL only. No player ids, no captain, no
         // roster — nothing about their players is stored. playerCount is
         // just "how many a side" so wickets-in-hand / all-out maths work.
@@ -127,7 +137,10 @@ export default function NewTournamentMatch() {
     )
   }
 
-  const canStart = Boolean(tournamentId && stage && opponentName.trim() && playingIds.length >= 2)
+  // Captain is required, the same way NewMatch won't start without two of
+  // them — it's known at the toss, and leaving it blank silently drops the
+  // round out of the captaincy stats.
+  const canStart = Boolean(tournamentId && stage && opponentName.trim() && playingIds.length >= 2 && captainId)
 
   return (
     <div className="max-w-3xl mx-auto p-4 pb-24 md:pb-8">
@@ -287,6 +300,25 @@ export default function NewTournamentMatch() {
           </div>
         )}
 
+        {tournamentId && playingIds.length > 0 && (
+          <div>
+            <label className="text-xs text-gray-500">Our captain</label>
+            <select
+              value={captainId}
+              onChange={(e) => setCaptainId(e.target.value)}
+              className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="">Select a captain</option>
+              {playingIds.map((id) => (
+                <option key={id} value={id}>
+                  {playersById[id]?.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1">Counts toward their captaincy record on the Stats page. The opponent's captain isn't recorded.</p>
+          </div>
+        )}
+
         <button
           onClick={() => setConfirmStart(true)}
           disabled={!canStart || startingMatch}
@@ -299,7 +331,7 @@ export default function NewTournamentMatch() {
       <ConfirmDialog
         open={confirmStart}
         title="Start this match?"
-        message={`${stage || 'This round'} vs ${opponentName.trim() || 'the opponent'} — this saves the match and moves you to live scoring.`}
+        message={`${stage || 'This round'} vs ${opponentName.trim() || 'the opponent'}, captained by ${playersById[captainId]?.name || '—'} — this saves the match and moves you to live scoring.`}
         confirmLabel={startingMatch ? 'Starting...' : 'Start'}
         onConfirm={handleStart}
         onCancel={() => !startingMatch && setConfirmStart(false)}

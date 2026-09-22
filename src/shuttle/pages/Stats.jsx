@@ -27,6 +27,11 @@ const RANGE_OPTIONS = [
 
 const CARD = 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-3'
 
+// How many bars the win-rate chart shows. The group has grown past the 8 this
+// started at, which cut off regulars who clear the match floor; 15 covers
+// everyone who turns up often enough to be ranked without the card running on.
+const WIN_RATE_CHART_ROWS = 15
+
 function h2hCellClass(rec) {
   if (!rec || rec.wins === rec.losses) return 'bg-gray-50 text-gray-500 dark:bg-gray-800/60 dark:text-gray-400'
   if (rec.wins > rec.losses) return 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400'
@@ -130,7 +135,7 @@ export default function Stats() {
           Win rate, {rangeLabel.toLowerCase()} (min {MIN_RANKED_MATCHES} matches)
         </p>
         <div className="flex flex-col gap-1.5">
-          {rankedRows.slice(0, 8).map((r) => (
+          {rankedRows.slice(0, WIN_RATE_CHART_ROWS).map((r) => (
             <div key={r.playerId} className="flex items-center gap-2">
               <span className="text-xs text-gray-500 dark:text-gray-400 w-16 truncate">{r.name}</span>
               <div className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">

@@ -1,6 +1,6 @@
 // engine/statsEngine.js
 import { computeMVPPoints, buildMatchPlayerStats } from './mvpEngine.js'
-import { deriveInningsState, deriveMatchupStats, legalBallCountFromOvers } from './scoringEngine.js'
+import { computeMatchResult, deriveInningsState, deriveMatchupStats, legalBallCountFromOvers } from './scoringEngine.js'
 
 export const MIN_RELIABLE_MATCHES = 2 // below this, tag stats as "small sample" in the UI
 export const MIN_STRIKE_RATE_RUNS = 25 // below this, a strike rate is too noisy (e.g. a 4-ball cameo) to rank
@@ -8,6 +8,34 @@ export const MIN_MVP_MATCHES = 5 // MVP average swings hard on 1-2 big games, so
 export const MIN_STATS_MATCHES = 5 // the Stats page's full leaderboards (unlike the Dashboard's small-sample-tagged summaries) filter everyone below this out entirely
 export const MIN_MATCHUP_MATCHES = 5 // the Matchups page needs a real track record before a head-to-head means anything, not just "Stats page" consistency — kept as its own constant in case that reasoning ever diverges from MIN_STATS_MATCHES
 export const MIN_MATCHUP_BALLS = 3 // below this, a matchup's strike rate is too noisy to call "toughest" or "best" — kept low so more pairs qualify while data is still thin
+export const MIN_CAPTAINCY_MATCHES = 3 // a captain's win rate off one or two games says nothing — the counts (matches, wins, losses) are shown from the first match, but win % is only ranked from here up
+
+/** Firestore `createdAt` is a Timestamp; a just-written doc can briefly have
+ * null there before the server value lands. Returns null when there's
+ * nothing usable rather than guessing a time. */
+function createdAtMillis(match) {
+  const value = match?.createdAt
+  if (!value) return null
+  if (typeof value.toMillis === 'function') return value.toMillis()
+  if (typeof value.seconds === 'number') return value.seconds * 1000
+  const parsed = new Date(value).getTime()
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+/** Oldest first. `date` is day-precision, and a tournament plays every round
+ * on ONE day — so sorting by date alone leaves same-day matches in whatever
+ * order they arrived, which for the app's `orderBy('date', 'desc')` query is
+ * backwards. Anything order-sensitive (win streaks) would silently read a
+ * tournament in reverse, so createdAt breaks the tie, with the document id
+ * as a last resort to keep the sort deterministic either way. */
+export function byChronology(a, b) {
+  const byDate = new Date(a.date) - new Date(b.date)
+  if (byDate) return byDate
+  const createdA = createdAtMillis(a)
+  const createdB = createdAtMillis(b)
+  if (createdA !== null && createdB !== null && createdA !== createdB) return createdA - createdB
+  return String(a.id ?? '').localeCompare(String(b.id ?? ''))
+}
 
 function pairKey(a, b) {
   return a < b ? `${a}|${b}` : `${b}|${a}`
@@ -52,7 +80,7 @@ export function computePlayerStats(matches, players) {
 
   const completed = matches
     .filter((m) => m.status === 'completed')
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .sort(byChronology)
 
   for (const match of completed) {
     const playedThisMatch = new Set([...(match.teamA?.playerIds || []), ...(match.teamB?.playerIds || [])])
@@ -247,8 +275,14 @@ export function bowlingStrikeRateLeaderboard(statsById, { minMatches = MIN_RELIA
 /** Where this player sits on each Stats-page leaderboard (same
  * MIN_STATS_MATCHES cut-off, so "No. 2 in economy" here matches what the
  * Stats page shows). Only podium finishes are returned, best rank first.
- * Tied values share a rank. */
-export function playerHighlights(statsById, playerId, { maxRank = 3, minMatches = MIN_STATS_MATCHES } = {}) {
+ * Tied values share a rank.
+ *
+ * Pass `captaincyById` (a computeCaptaincyStats map) to include the two
+ * captaincy boards. They keep their OWN cut-offs rather than minMatches,
+ * again so a badge here says the same thing the Captaincy tab does: a count
+ * of matches led needs no minimum, a win rate needs MIN_CAPTAINCY_MATCHES.
+ * A player who has never captained simply isn't on either board. */
+export function playerHighlights(statsById, playerId, { maxRank = 3, minMatches = MIN_STATS_MATCHES, captaincyById = null } = {}) {
   const boards = [
     { label: 'runs', rows: battingLeaderboard(statsById, { minMatches }), value: (r) => r.totalRuns },
     { label: 'wickets', rows: bowlingLeaderboard(statsById, { minMatches }), value: (r) => r.totalWickets },
@@ -258,6 +292,12 @@ export function playerHighlights(statsById, playerId, { maxRank = 3, minMatches 
     { label: 'economy', rows: economyLeaderboard(statsById, { minMatches }), value: (r) => r.economy },
     { label: 'bowling average', rows: bowlingAverageLeaderboard(statsById, { minMatches }), value: (r) => r.average },
     { label: 'bowling strike rate', rows: bowlingStrikeRateLeaderboard(statsById, { minMatches }), value: (r) => r.bowlingStrikeRate },
+    ...(captaincyById
+      ? [
+          { label: 'matches captained', rows: captaincyLeaderboard(captaincyById), value: (r) => r.matchesCaptained },
+          { label: 'captaincy win rate', rows: captaincyWinPctLeaderboard(captaincyById), value: (r) => r.winPct },
+        ]
+      : []),
   ]
   const highlights = []
   for (const { label, rows, value } of boards) {
@@ -270,6 +310,109 @@ export function playerHighlights(statsById, playerId, { maxRank = 3, minMatches 
     if (rank <= maxRank) highlights.push({ label, rank })
   }
   return highlights.sort((a, b) => a.rank - b.rank)
+}
+
+// CAPTAINCY — a record of the armband rather than of the player.
+//
+// Kept apart from computePlayerStats on purpose: everything there is earned
+// ball by ball and belongs to one person, while a captain's win/loss is the
+// whole team's result filed under their name. Mixing the two would let a
+// captaincy record ride along on leaderboards ("most wins") that read like
+// individual achievements. The captain is stored on the match itself
+// (`teamA.captainId` / `teamB.captainId`, set during the draft in NewMatch),
+// so this walks matches the same way and needs nothing new written anywhere.
+//
+// Tournament matches carry an external opponent with `captainId: null` — the
+// side we don't track simply contributes no captaincy record, and our own
+// captain's result still counts.
+
+function emptyCaptaincyStat(playerId, name) {
+  return {
+    playerId,
+    name,
+    matchesCaptained: 0,
+    wins: 0,
+    losses: 0,
+    ties: 0,
+    noResults: 0, // completed but with no second innings — see computeMatchResult
+    currentWinStreak: 0, // as of the most recent match captained
+    bestWinStreak: 0,
+  }
+}
+
+/** Walks every completed match and builds a per-captain win/loss record. */
+export function computeCaptaincyStats(matches, players) {
+  const byId = {}
+  for (const p of players) byId[p.id] = emptyCaptaincyStat(p.id, p.name)
+
+  const completed = matches
+    .filter((m) => m.status === 'completed')
+    .sort(byChronology) // streaks read this in order — see byChronology
+
+  for (const match of completed) {
+    const result = computeMatchResult(match)
+    for (const teamKey of ['A', 'B']) {
+      const team = teamKey === 'A' ? match.teamA : match.teamB
+      const captainId = team?.captainId
+      // An unknown id here means the captain was deleted from the roster
+      // after the match — the match still happened, but there's no record
+      // left to file it under.
+      if (!captainId || !byId[captainId]) continue
+      const s = byId[captainId]
+      s.matchesCaptained += 1
+
+      if (!result || result.winner === 'no-result') {
+        // A washed-out game neither builds nor breaks a streak.
+        s.noResults += 1
+        continue
+      }
+      if (result.winner === teamKey) {
+        s.wins += 1
+        s.currentWinStreak += 1
+        s.bestWinStreak = Math.max(s.bestWinStreak, s.currentWinStreak)
+      } else if (result.winner === 'tie') {
+        s.ties += 1
+        s.currentWinStreak = 0
+      } else {
+        s.losses += 1
+        s.currentWinStreak = 0
+      }
+    }
+  }
+
+  return byId
+}
+
+/** Wins as a share of DECIDED matches — no-results are left out of the
+ * denominator rather than counted as non-wins, so a rained-off game doesn't
+ * quietly drag a captain's record down. Null until there's a decided match
+ * to compute from. */
+export function captaincyWinPct(s) {
+  if (!s) return null
+  const decided = s.wins + s.losses + s.ties
+  if (!decided) return null
+  return (s.wins / decided) * 100
+}
+
+/** Captains by workload — most matches with the armband first, wins
+ * breaking the tie. Unlike the rate-based boards this one is honest from
+ * match one (a count can't be a "small sample"), so it defaults to
+ * everyone who has captained at all. */
+export function captaincyLeaderboard(captaincyById, { minMatches = 1 } = {}) {
+  return Object.values(captaincyById)
+    .filter((s) => s.matchesCaptained >= minMatches)
+    .map((s) => ({ ...s, winPct: captaincyWinPct(s) }))
+    .sort((a, b) => b.matchesCaptained - a.matchesCaptained || b.wins - a.wins)
+}
+
+/** Captains by win rate, which — being a rate — needs the
+ * MIN_CAPTAINCY_MATCHES cut-off before it means anything. Ties break on the
+ * bigger sample, so 4 from 5 ranks above 2 from 2 at the same percentage. */
+export function captaincyWinPctLeaderboard(captaincyById, { minMatches = MIN_CAPTAINCY_MATCHES } = {}) {
+  return Object.values(captaincyById)
+    .filter((s) => s.matchesCaptained >= minMatches && captaincyWinPct(s) !== null)
+    .map((s) => ({ ...s, winPct: captaincyWinPct(s) }))
+    .sort((a, b) => b.winPct - a.winPct || b.matchesCaptained - a.matchesCaptained)
 }
 
 export function attendanceCounts(matches, players, lastN = null) {

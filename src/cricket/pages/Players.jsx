@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { usePlayers } from '../hooks/usePlayers'
 import { useStats } from '../hooks/useStats'
 import { useMatches } from '../hooks/useMatch'
-import { computePlayerStats } from '../engine/statsEngine'
+import { computePlayerStats, computeCaptaincyStats } from '../engine/statsEngine'
 import { MATCH_VARIANTS } from '../context/MatchVariant'
 import PlayerCard from '../components/PlayerCard'
 import PlayerFormModal from '../components/PlayerFormModal'
@@ -14,11 +14,16 @@ import { useAdmin } from '../../shell/components/Admin'
 
 export default function Players() {
   const { players, loading, addPlayer, updatePlayer, toggleActive, deletePlayer } = usePlayers()
-  const { statsById } = useStats()
+  const { statsById, matches } = useStats()
   // Box records stay out of statsById (see context/MatchVariant.jsx) — they're
   // computed separately so the career table can show them as their own row.
   const { matches: boxMatches } = useMatches(MATCH_VARIANTS.box.collection)
   const boxStatsById = useMemo(() => computePlayerStats(boxMatches, players), [boxMatches, players])
+  // Who captained is stored on the match, not on the player, so the
+  // captaincy record is built from the same two match sets rather than read
+  // off statsById (see statsEngine.js).
+  const captaincyById = useMemo(() => computeCaptaincyStats(matches, players), [matches, players])
+  const boxCaptaincyById = useMemo(() => computeCaptaincyStats(boxMatches, players), [boxMatches, players])
   const { showToast } = useToast()
   const { isAdmin } = useAdmin()
   const [showAdd, setShowAdd] = useState(false)
@@ -108,6 +113,10 @@ export default function Players() {
         boxStat={selected ? boxStatsById[selected.id] : null}
         statsById={statsById}
         boxStatsById={boxStatsById}
+        captaincy={selected ? captaincyById[selected.id] : null}
+        boxCaptaincy={selected ? boxCaptaincyById[selected.id] : null}
+        captaincyById={captaincyById}
+        boxCaptaincyById={boxCaptaincyById}
         canManage={isAdmin}
         onClose={() => setSelected(null)}
         onEdit={(player) => {

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { battingAverage, strikeRate, bowlingAverage, bowlingStrikeRate, avgMVPPoints, totalMVPPoints, MIN_MVP_MATCHES, playerHighlights } from '../engine/statsEngine'
+import { battingAverage, strikeRate, bowlingAverage, bowlingStrikeRate, avgMVPPoints, totalMVPPoints, captaincyWinPct, MIN_MVP_MATCHES, playerHighlights } from '../engine/statsEngine'
 import ConfirmDialog from './ConfirmDialog'
 
 const fixed = (value, digits) => (value === null || value === undefined ? '—' : value.toFixed(digits))
@@ -51,6 +51,19 @@ const IMPACT_COLUMNS = [
   { label: 'MOTM', title: 'Man of the Match', value: (s) => s.motmCount },
 ]
 
+// Captaincy reads off computeCaptaincyStats() records, not the
+// computePlayerStats() ones every table above uses — a captain's win/loss is
+// the team's result filed under their name (see statsEngine.js).
+const CAPTAINCY_COLUMNS = [
+  { label: 'Led', title: 'Matches captained', value: (s) => s.matchesCaptained, strong: true },
+  { label: 'W', title: 'Won', value: (s) => s.wins },
+  { label: 'L', title: 'Lost', value: (s) => s.losses },
+  { label: 'T', title: 'Tied', value: (s) => s.ties },
+  { label: 'NR', title: 'No result — the match ended before a second innings', value: (s) => s.noResults },
+  { label: 'Win%', title: 'Wins as a share of decided matches', value: (s) => (captaincyWinPct(s) === null ? '—' : `${captaincyWinPct(s).toFixed(0)}%`) },
+  { label: 'Best run', title: 'Longest run of wins as captain', value: (s) => s.bestWinStreak },
+]
+
 function CareerTable({ title, columns, rows }) {
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden mb-4">
@@ -86,16 +99,16 @@ function CareerTable({ title, columns, rows }) {
   )
 }
 
-export default function PlayerDetailModal({ player, stat, boxStat, statsById, boxStatsById, onClose, onToggleActive, onDelete, onEdit, canManage = false }) {
+export default function PlayerDetailModal({ player, stat, boxStat, statsById, boxStatsById, captaincy, boxCaptaincy, captaincyById, boxCaptaincyById, onClose, onToggleActive, onDelete, onEdit, canManage = false }) {
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const highlights = useMemo(() => {
     if (!player) return []
     return [
-      ...(statsById ? playerHighlights(statsById, player.id) : []),
-      ...(boxStatsById ? playerHighlights(boxStatsById, player.id).map((h) => ({ ...h, format: 'Box' })) : []),
+      ...(statsById ? playerHighlights(statsById, player.id, { captaincyById }) : []),
+      ...(boxStatsById ? playerHighlights(boxStatsById, player.id, { captaincyById: boxCaptaincyById }).map((h) => ({ ...h, format: 'Box' })) : []),
     ].sort((a, b) => a.rank - b.rank)
-  }, [player, statsById, boxStatsById])
+  }, [player, statsById, boxStatsById, captaincyById, boxCaptaincyById])
   if (!player) return null
 
   // Box records are kept apart from cricket everywhere else (see
@@ -108,6 +121,12 @@ export default function PlayerDetailModal({ player, stat, boxStat, statsById, bo
   const battedIn = formats.filter((f) => f.stat.inningsBatted)
   const bowledIn = formats.filter((f) => f.stat.inningsBowled)
   const smallSample = formats.some((f) => f.stat.matchesPlayed < MIN_MVP_MATCHES)
+  // Most players have never captained, so this table only appears for the
+  // ones who have — in whichever format they did it.
+  const captainedIn = [
+    { label: 'Cricket', stat: captaincy },
+    { label: 'Box Cricket', stat: boxCaptaincy },
+  ].filter((f) => f.stat?.matchesCaptained)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 p-4">
@@ -142,6 +161,7 @@ export default function PlayerDetailModal({ player, stat, boxStat, statsById, bo
             {battedIn.length > 0 && <CareerTable title="Batting & Fielding" columns={BATTING_COLUMNS} rows={battedIn} />}
             {bowledIn.length > 0 && <CareerTable title="Bowling" columns={BOWLING_COLUMNS} rows={bowledIn} />}
             <CareerTable title="Impact" columns={IMPACT_COLUMNS} rows={formats} />
+            {captainedIn.length > 0 && <CareerTable title="Captaincy" columns={CAPTAINCY_COLUMNS} rows={captainedIn} />}
             {smallSample && (
               <p className="text-[11px] text-amber-700 -mt-2 mb-4">Fewer than {MIN_MVP_MATCHES} matches in a format — averages there are a small sample.</p>
             )}

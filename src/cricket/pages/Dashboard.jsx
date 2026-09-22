@@ -11,8 +11,12 @@ import {
   battingAverageLeaderboard,
   bowlingAverageLeaderboard,
   economyLeaderboard,
+  computeCaptaincyStats,
+  captaincyLeaderboard,
+  captaincyWinPctLeaderboard,
   MIN_STATS_MATCHES,
   MIN_MVP_MATCHES,
+  MIN_CAPTAINCY_MATCHES,
 } from '../engine/statsEngine'
 import { matchResultHeadline, liveScoreHeadline } from '../engine/scoringEngine'
 import { MetricCard, StatusBadge } from '../components/StatsBadge'
@@ -20,7 +24,7 @@ import Leaderboard from '../components/Leaderboard'
 import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
 import { formatOversDisplay } from '../utils'
-import { BatIcon, BallIcon, StopwatchIcon, TargetIcon, ShieldIcon, CrosshairIcon } from '../components/StatIcons'
+import { BatIcon, BallIcon, StopwatchIcon, TargetIcon, ShieldIcon, CrosshairIcon, ArmbandIcon } from '../components/StatIcons'
 import MvpInfoModal from '../components/MvpInfoModal'
 import NextPayerCard from '../../shell/components/NextPayerCard'
 import SportChip from '../../shell/components/SportChip'
@@ -130,6 +134,19 @@ export default function Dashboard() {
   // Economy is already sorted ascending inside economyLeaderboard (lowest
   // conceded first), so slicing the first 5 here is correctly "best 5",
   // not "worst 5" — no re-sort needed.
+  // Captaincy is counted off the match documents, not statsById — who led is
+  // stored on the match (see computeCaptaincyStats). Top 3 rather than 5:
+  // far fewer people captain than play, so a longer list would just repeat
+  // the Stats tab's full table.
+  const captaincyById = useMemo(() => computeCaptaincyStats(matches, players), [matches, players])
+  const captaincyWinRows = useMemo(
+    // Win count is a plain tally, so it needs no minimum — but somebody has
+    // to have actually won one to be worth listing.
+    () => captaincyLeaderboard(captaincyById).filter((r) => r.wins > 0).sort((a, b) => b.wins - a.wins || b.winPct - a.winPct).slice(0, 3),
+    [captaincyById],
+  )
+  const captaincyWinRateRows = useMemo(() => captaincyWinPctLeaderboard(captaincyById).slice(0, 3), [captaincyById])
+
   const dashboardSections = useMemo(
     () => [
       {
@@ -198,8 +215,37 @@ export default function Dashboard() {
           </>
         ),
       },
+      {
+        key: 'captaincyWins',
+        label: 'Captain Wins',
+        icon: ArmbandIcon,
+        count: 3,
+        rows: captaincyWinRows,
+        // The "small sample" tag reads matchesPlayed, which a captaincy row
+        // doesn't carry — switched off rather than left to silently no-op.
+        showSampleWarning: false,
+        renderValue: (r) => (
+          <>
+            {r.wins} won <span className="text-[10px] font-normal text-gray-400">({r.matchesCaptained} led)</span>
+          </>
+        ),
+      },
+      {
+        key: 'captaincyWinRate',
+        label: 'Captain Win Rate',
+        icon: ArmbandIcon,
+        count: 3,
+        note: `min ${MIN_CAPTAINCY_MATCHES} matches`,
+        rows: captaincyWinRateRows,
+        showSampleWarning: false,
+        renderValue: (r) => (
+          <>
+            {r.winPct.toFixed(0)}% <span className="text-[10px] font-normal text-gray-400">({r.wins}/{r.matchesCaptained})</span>
+          </>
+        ),
+      },
     ],
-    [statsById],
+    [statsById, captaincyWinRows, captaincyWinRateRows],
   )
 
   const recentMatches = useMemo(() => [...matches].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4), [matches])
@@ -365,9 +411,12 @@ export default function Dashboard() {
               <span className="w-7 h-7 rounded-full bg-pitch-light text-pitch flex items-center justify-center shrink-0">
                 <section.icon className="w-3.5 h-3.5" />
               </span>
-              <p className="text-xs font-semibold text-gray-800">{section.label} (top 5)</p>
+              <p className="text-xs font-semibold text-gray-800">
+                {section.label} (top {section.count ?? 5})
+                {section.note ? <span className="font-normal text-gray-400"> · {section.note}</span> : null}
+              </p>
             </div>
-            <Leaderboard rows={section.rows} renderValue={section.renderValue} />
+            <Leaderboard rows={section.rows} renderValue={section.renderValue} showSampleWarning={section.showSampleWarning ?? true} />
           </div>
         ))}
       </div>

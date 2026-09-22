@@ -9,15 +9,20 @@ import {
   bowlingAverageLeaderboard,
   bowlingStrikeRateLeaderboard,
   economyLeaderboard,
+  computeCaptaincyStats,
+  captaincyLeaderboard,
+  captaincyWinPctLeaderboard,
   MIN_STRIKE_RATE_RUNS,
   MIN_STATS_MATCHES,
+  MIN_CAPTAINCY_MATCHES,
 } from '../engine/statsEngine'
 import { exportPeriodSummaryPDF } from '../engine/pdfExport'
 import Leaderboard from '../components/Leaderboard'
+import CaptaincyBoard from '../components/CaptaincyBoard'
 import Footer from '../components/Footer'
 import { ListSkeleton } from '../components/Skeleton'
 import { formatOversDisplay } from '../utils'
-import { BatIcon, BallIcon, TrophyIcon, StopwatchIcon, TargetIcon, ShieldIcon, CrosshairIcon, GaugeIcon } from '../components/StatIcons'
+import { BatIcon, BallIcon, TrophyIcon, StopwatchIcon, TargetIcon, ShieldIcon, CrosshairIcon, GaugeIcon, ArmbandIcon } from '../components/StatIcons'
 import MvpInfoModal from '../components/MvpInfoModal'
 import { useMatchVariant } from '../context/MatchVariant'
 
@@ -37,6 +42,7 @@ const STATS_TABS = [
   { key: 'average', label: 'Batting Average', icon: TargetIcon },
   { key: 'bowlingAverage', label: 'Bowling Average', icon: CrosshairIcon },
   { key: 'economy', label: 'Economy', icon: ShieldIcon },
+  { key: 'captaincy', label: 'Captaincy', icon: ArmbandIcon },
 ]
 
 export default function Stats() {
@@ -61,6 +67,14 @@ export default function Stats() {
   const averageRows = useMemo(() => battingAverageLeaderboard(statsById, { minMatches: MIN_STATS_MATCHES }).slice(0, 10), [statsById])
   const bowlingAverageRows = useMemo(() => bowlingAverageLeaderboard(statsById, { minMatches: MIN_STATS_MATCHES }).slice(0, 10), [statsById])
   const economyRows = useMemo(() => economyLeaderboard(statsById, { minMatches: MIN_STATS_MATCHES }).slice(0, 10), [statsById])
+  // Captaincy is counted off the match documents rather than statsById —
+  // the armband belongs to the match, not to a player's ball-by-ball record
+  // (see computeCaptaincyStats). It also keeps its own, lower cut-off: a
+  // matches-led count is meaningful from match one, so filtering at
+  // MIN_STATS_MATCHES would hide most of the captains outright.
+  const captaincyById = useMemo(() => computeCaptaincyStats(matches, players), [matches, players])
+  const captaincyRows = useMemo(() => captaincyLeaderboard(captaincyById).slice(0, 10), [captaincyById])
+  const captaincyWinPctRows = useMemo(() => captaincyWinPctLeaderboard(captaincyById), [captaincyById])
 
   if (loading) {
     return (
@@ -135,7 +149,9 @@ export default function Stats() {
         </p>
       )}
       <p className="text-[11px] text-gray-400 mb-3">
-        Leaderboards require at least {MIN_STATS_MATCHES} matches played.
+        {tab === 'captaincy'
+          ? `Every captain of a completed match is listed. Win % needs at least ${MIN_CAPTAINCY_MATCHES} matches captained.`
+          : `Leaderboards require at least ${MIN_STATS_MATCHES} matches played.`}
         {tab === 'strikeRate' ? ` Strike rate also requires at least ${MIN_STRIKE_RATE_RUNS} runs scored.` : ''}
       </p>
 
@@ -211,6 +227,7 @@ export default function Stats() {
           renderValue={(r) => `${r.economy.toFixed(1)} econ`}
         />
       )}
+      {tab === 'captaincy' && <CaptaincyBoard rows={captaincyRows} winPctRows={captaincyWinPctRows} />}
 
       <Footer />
       <MvpInfoModal open={showMvpInfo} onClose={() => setShowMvpInfo(false)} />
